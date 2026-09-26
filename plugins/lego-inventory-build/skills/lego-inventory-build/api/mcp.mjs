@@ -95,6 +95,9 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Expose-Headers', 'Mcp-Session-Id');
   if (req.method === 'OPTIONS') return res.status(204).end();
   if (req.method === 'GET') {
+    // MCP clients open an SSE stream with GET; this stateless server has none, and the spec
+    // says to answer 405 then (a 200 makes clients reconnect in a loop). Browsers get the info.
+    if (/text\/event-stream/.test(req.headers.accept || '')) return res.status(405).setHeader('Allow', 'POST').end();
     return res.status(200).json({ name: 'lego-inventory-build', mcp: '/mcp?key=<your key>', state: !!STATE, media: !!MEDIA, open: process.env.LEGO_OPEN === '1' });
   }
   if (req.method !== 'POST') return res.status(405).end();

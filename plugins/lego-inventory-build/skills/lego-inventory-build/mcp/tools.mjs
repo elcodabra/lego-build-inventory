@@ -32,9 +32,11 @@ const GUIDE = [
 const PHOTO_GUIDE = fs.readFileSync(path.join(core.ROOT, 'reference/photos.md'), 'utf8');
 
 const INSTRUCTIONS = `LEGO builder that designs models ONLY from parts the user owns.
-Photos of parts: one part per photo -> parts_from_photo (add=true). A pile/tray of many parts ->
-look at the photo yourself, list parts as CSV "part,color,qty" per lego_photo_guide, show the list
-to the user, then inventory_import. Then ideas_suggest -> offer 2-4 ideas -> idea_build -> model_preview.
+Photos: pass the uploaded image FILE to the tools, do not describe it yourself. Many parts on one
+photo -> parts_from_pile_photo (the server finds and recognises every part). One part per photo ->
+parts_from_photo. Show the user the resulting list, fix doubts with inventory_update, then
+ideas_suggest -> offer 2-4 ideas -> idea_build -> model_preview (show the image link).
+Only if the file cannot be passed: read the photo yourself per lego_photo_guide and inventory_import.
 Workflow for a custom model: 1) inventory_show (import with inventory_import / inventory_add_set if empty).
 2) lego_guide once, to learn coordinates and rules. 3) Design a model as JSON steps using ONLY
 (part, colour) pairs from the drawable inventory; build bottom-up, bricks +3 plates, plates +1.
@@ -190,7 +192,7 @@ export function buildServer(opts) {
   const FileObj = z.object({ download_url: z.string(), file_id: z.string(), mime_type: z.string().optional(), file_name: z.string().optional() });
   s.registerTool('parts_from_photo', {
     title: 'Recognise parts on photos',
-    description: 'Use this when the user sends photos of SINGLE LEGO parts (one part per photo, plain background). Identifies the part number (Brickognize) and colour, and with add=true adds confident results to the inventory. For a photo of many parts at once, read the photo yourself instead (see lego_photo_guide) and use inventory_import.',
+    description: 'Use this when the user sends photos of SINGLE LEGO parts (one part per photo). Identifies the part number (Brickognize) and colour, and with add=true adds confident results to the inventory. For a photo with many parts use parts_from_pile_photo.',
     inputSchema: {
       files: z.array(FileObj).optional().describe('uploaded photos (ChatGPT)'),
       images: z.array(z.string()).optional().describe('photos as URLs, file paths, data: URLs or base64'),
@@ -216,6 +218,51 @@ export function buildServer(opts) {
     }
     if (add) { inv.sources.push(`photos ×${out.filter((x) => x.added).length}`); core.saveInventory(inv); }
     return text({ results: out, next: 'Show the user what was recognised; ask about unconfident ones (fix with inventory_update). Then ideas_suggest.' });
+  }));
+
+  s.registerTool('parts_from_pile_photo', {
+    title: 'Recognise a pile of parts',
+    description: 'Use this when the user sends a photo with MANY LEGO parts (laid out on a table, a tray, a pile). Pass the uploaded file. The server finds every separate part on the photo, recognises each one (part number + colour) and returns the counts; with add=true they are added to the inventory. Works best when parts do not touch and the background is plain. Takes 5-30 s.',
+    inputSchema: {
+      files: z.array(FileObj).optional().describe('uploaded photos (ChatGPT)'),
+      images: z.array(z.string()).optional().describe('photos as URLs, file paths, data: URLs or base64'),
+      add: z.boolean().optional().describe('add the recognised parts to the inventory (default true)'),
+      replace: z.boolean().optional().describe('replace the inventory instead of adding'),
+    },
+    annotations: { openWorldHint: true },
+    _meta: { 'openai/fileParams': ['files'] },
+  }, safe(async ({ files, images, add, replace }) => {
+    const srcs = [...(files || []).map((f) => f.download_url), ...(images || [])];
+    if (!srcs.length) throw new Error('pass "files" (the uploaded photo) or "images"');
+    const inv = core.loadInventory();
+    if (replace) { inv.items = []; inv.sources = []; }
+    const photos = [];
+    const all = new Map();
+    for (const src of srcs.slice(0, 6)) {
+      const r = await photo.identifyPile(src);
+      photos.push({ found: r.found, recognised: r.recognised, failed: r.parts.filter((p) => p.error).length });
+      for (const it of r.items) {
+        const k = it.id + '|' + it.color;
+        const v = all.get(k) || { ...it, qty: 0, unsure: 0 };
+        v.qty += it.qty;
+        v.unsure += it.unsure;
+        all.set(k, v);
+      }
+    }
+    const items = [...all.values()];
+    if (add !== false) {
+      inv.items.push(...items.map((it) => ({ id: it.id, color: it.color, qty: it.qty })));
+      inv.sources.push(`pile photo ×${srcs.length}`);
+      core.saveInventory(inv);
+    }
+    const total = items.reduce((a, x) => a + x.qty, 0);
+    return text({
+      photos,
+      totalParts: total,
+      parts: items.map((it) => ({ id: it.id, name: it.name, color: it.color, qty: it.qty, unsure: it.unsure || undefined, drawable: core.drawable(it.id) })),
+      added: add !== false,
+      next: 'Show this list to the user as a table (part, name, colour, qty), mention unsure lines and that touching parts may be counted as one. Fix with inventory_update if the user corrects it. Then ideas_suggest.',
+    });
   }));
 
   s.registerTool('ideas_suggest', {

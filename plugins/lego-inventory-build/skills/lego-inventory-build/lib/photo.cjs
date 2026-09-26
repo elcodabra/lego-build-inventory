@@ -155,6 +155,22 @@ async function identify(src, opts) {
     if (c.color && !colors.some((x) => x.color === c.color)) colors.push({ color: c.color, score: c.score, source: 'brickognize' });
   }
   for (const c of pixels) if (!colors.some((x) => x.color === c.color)) colors.push({ color: c.color, score: c.share, source: 'pixels' });
+  // Brickognize mixes up neutral shades (white / light grey / dark grey / black) under uneven
+  // light; the pixels are more reliable there: if both are neutral and the pixels clearly vote
+  // for another shade that Brickognize also lists (or any shade with a strong pixel majority), use it.
+  const NEUTRAL = ['white', 'lbg', 'dbg', 'black'];
+  const shade = (k) => NEUTRAL.indexOf(k);
+  if (colors[0] && pixels[0] && NEUTRAL.includes(colors[0].color) && NEUTRAL.includes(pixels[0].color) && colors[0].color !== pixels[0].color && pixels[0].share >= 0.5) {
+    // move one shade from Brickognize's pick toward the pixels, preferring a shade Brickognize lists
+    const dir = Math.sign(shade(pixels[0].color) - shade(colors[0].color));
+    const step = NEUTRAL[shade(colors[0].color) + dir];
+    const pick = bl.some((c) => c.color === pixels[0].color) ? pixels[0].color : bl.some((c) => c.color === step) ? step : (pixels[0].share >= 0.8 ? pixels[0].color : null);
+    if (pick) {
+      const i = colors.findIndex((c) => c.color === pick);
+      const [p0] = i >= 0 ? colors.splice(i, 1) : [{ color: pick }];
+      colors.unshift({ ...p0, source: 'pixels+brickognize', score: pixels[0].share });
+    }
+  }
   const agree = colors[0] && pixels[0] && colors[0].color === pixels[0].color;
   const coverage = box ? ((box.right - box.left) * (box.lower - box.upper)) / (box.image_width * box.image_height) : 1;
   const top = candidates[0];
@@ -172,4 +188,138 @@ async function identify(src, opts) {
   };
 }
 
-module.exports = { identify, rankColors, loadImage };
+// ------------------------------------------------------------------ piles
+
+// A photo of many parts: split it into separate parts by background subtraction and connected
+// components, then recognise each crop with Brickognize. Works when parts lie apart on a plain
+// background (touching parts merge into one blob). Returns merged counts plus per-part details.
+async function segment(img, opts) {
+  const o = opts || {};
+  const { loadImage, createCanvas } = require('@napi-rs/canvas');
+  const im = await loadImage(img.buf);
+  const S = Math.min(1, 480 / Math.max(im.width, im.height));
+  const W = Math.round(im.width * S);
+  const H = Math.round(im.height * S);
+  const c = createCanvas(W, H);
+  const x = c.getContext('2d');
+  x.drawImage(im, 0, 0, W, H);
+  const d = x.getImageData(0, 0, W, H).data;
+  // background model: the photo blurred a lot (follows vignetting and uneven light), but taken
+  // from a copy where strong-colour pixels are replaced by the border median, so parts do not
+  // bleed into it. Foreground = different chroma, clearly lighter (white parts on cream) or much
+  // darker than a shadow would make it.
+  const at = (i) => [d[4 * i], d[4 * i + 1], d[4 * i + 2]];
+  const border = [];
+  for (let i = 0; i < W; i++) border.push(at(i), at((H - 1) * W + i));
+  for (let j = 0; j < H; j++) border.push(at(j * W), at(j * W + W - 1));
+  const med = [0, 1, 2].map((k) => border.map((p) => p[k]).sort((a, b) => a - b)[border.length >> 1]);
+  const medS = med[0] + med[1] + med[2] || 1;
+  const chromaOf = (p, q, ps, qs) => Math.hypot(p[0] / ps - q[0] / qs, p[1] / ps - q[1] / qs, p[2] / ps - q[2] / qs) * 255;
+  const clean = createCanvas(W, H);
+  const cx2 = clean.getContext('2d');
+  const cd = cx2.createImageData(W, H);
+  for (let i = 0; i < W * H; i++) {
+    const p = at(i);
+    const s = p[0] + p[1] + p[2] || 1;
+    const keep = chromaOf(p, med, s, medS) < 10 && Math.abs(s - medS) / 3 < 25;
+    const v = keep ? p : med;
+    cd.data[4 * i] = v[0]; cd.data[4 * i + 1] = v[1]; cd.data[4 * i + 2] = v[2]; cd.data[4 * i + 3] = 255;
+  }
+  cx2.putImageData(cd, 0, 0);
+  const bc = createCanvas(W, H);
+  const bx = bc.getContext('2d');
+  bx.filter = `blur(${Math.round(Math.max(W, H) / 10)}px)`;
+  bx.drawImage(clean, 0, 0);
+  const b = bx.getImageData(0, 0, W, H).data;
+  const fg = new Uint8Array(W * H);
+  for (let i = 0; i < W * H; i++) {
+    const p = at(i);
+    const q = [b[4 * i], b[4 * i + 1], b[4 * i + 2]];
+    const sum = p[0] + p[1] + p[2] || 1;
+    const qs = q[0] + q[1] + q[2] || 1;
+    const chroma = chromaOf(p, q, sum, qs);
+    const lighter = (sum - qs) / 3;
+    const darker = (qs - sum) / 3;
+    fg[i] = chroma > 16 || lighter > 10 || darker > 60 ? 1 : 0;
+  }
+  // close small gaps (edges drawn in the part colour), then label components
+  const lab = new Int32Array(W * H);
+  const boxes = [];
+  let n = 0;
+  const stack = [];
+  for (let s0 = 0; s0 < W * H; s0++) {
+    if (!fg[s0] || lab[s0]) continue;
+    n++;
+    let x0 = W; let y0 = H; let x1 = 0; let y1 = 0; let area = 0;
+    stack.push(s0);
+    lab[s0] = n;
+    while (stack.length) {
+      const q = stack.pop();
+      const qx = q % W; const qy = (q / W) | 0;
+      area++;
+      if (qx < x0) x0 = qx; if (qx > x1) x1 = qx; if (qy < y0) y0 = qy; if (qy > y1) y1 = qy;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const nx = qx + dx; const ny = qy + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const r = ny * W + nx;
+        if (fg[r] && !lab[r]) { lab[r] = n; stack.push(r); }
+      }
+    }
+    boxes.push({ x0, y0, x1, y1, area });
+  }
+  const minArea = (W * H) * 0.0006;
+  if (o.debug) {
+    const dc = createCanvas(W, H);
+    const dx2 = dc.getContext('2d');
+    dx2.drawImage(c, 0, 0);
+    const id = dx2.getImageData(0, 0, W, H);
+    for (let i = 0; i < W * H; i++) if (fg[i]) { id.data[4 * i] = 255; id.data[4 * i + 1] *= 0.4; id.data[4 * i + 2] *= 0.4; }
+    dx2.putImageData(id, 0, 0);
+    dx2.strokeStyle = '#00f';
+    for (const bb of boxes) if (bb.area >= minArea) dx2.strokeRect(bb.x0, bb.y0, bb.x1 - bb.x0, bb.y1 - bb.y0);
+    fs.writeFileSync(o.debug, dc.toBuffer('image/png'));
+  }
+  const parts = boxes.filter((b) => b.area >= minArea && b.area < W * H * 0.5);
+  const max = o.max || 80;
+  if (parts.length > max) throw new Error(`found ${parts.length} parts, more than ${max}: photograph fewer parts at once`);
+  // crop each part from the full-resolution image with a margin, recognise in small batches
+  const crops = parts.map((b) => {
+    const m = Math.max(6, 0.15 * Math.max(b.x1 - b.x0, b.y1 - b.y0));
+    const sx = Math.max(0, (b.x0 - m) / S); const sy = Math.max(0, (b.y0 - m) / S);
+    const sw = Math.min(im.width - sx, (b.x1 - b.x0 + 2 * m) / S); const sh = Math.min(im.height - sy, (b.y1 - b.y0 + 2 * m) / S);
+    const cc = createCanvas(Math.round(sw), Math.round(sh));
+    cc.getContext('2d').drawImage(im, sx, sy, sw, sh, 0, 0, Math.round(sw), Math.round(sh));
+    return { box: [Math.round(sx), Math.round(sy), Math.round(sw), Math.round(sh)], buf: cc.toBuffer('image/jpeg', 90) };
+  });
+  const results = [];
+  const conc = o.concurrency || 6;
+  for (let i = 0; i < crops.length; i += conc) {
+    results.push(...await Promise.all(crops.slice(i, i + conc).map(async (cr) => {
+      try {
+        const r = await identify(cr.buf);
+        return { box: cr.box, id: r.part && r.part.id, name: r.part && r.part.name, score: r.part && r.part.score, color: r.color, confident: r.confident, alt: r.candidates.slice(1).map((c2) => c2.id) };
+      } catch (e) {
+        return { box: cr.box, error: e.message };
+      }
+    })));
+  }
+  const counts = new Map();
+  for (const r of results) {
+    if (!r.id || !r.color) continue;
+    const k = r.id + '|' + r.color;
+    const v = counts.get(k) || { id: r.id, color: r.color, qty: 0, name: r.name, unsure: 0 };
+    v.qty++;
+    if (!r.confident) v.unsure++;
+    counts.set(k, v);
+  }
+  const items = [...counts.values()].sort((a, b) => a.color.localeCompare(b.color) || a.id.localeCompare(b.id));
+  return { found: parts.length, recognised: results.filter((r) => r.id).length, items, parts: results };
+}
+
+async function identifyPile(src, opts) {
+  const img = await loadImage(src);
+  if (/heic|heif/.test(img.mime)) throw new Error('HEIC is not supported: export the photo as JPEG');
+  return segment(img, opts);
+}
+
+module.exports = { identify, identifyPile, rankColors, loadImage };
