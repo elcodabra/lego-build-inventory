@@ -19,7 +19,7 @@
     "mosaic": "node tools/mosaic.cjs",
     "mcp": "node mcp/server.mjs",
     "mcp:http": "node mcp/server.mjs --http",
-    "test": "node test/smoke.mjs",
+    "test": "node test/security.mjs && node test/smoke.mjs",
     "deploy": "vercel deploy --prod"
   },
   "dependencies": {

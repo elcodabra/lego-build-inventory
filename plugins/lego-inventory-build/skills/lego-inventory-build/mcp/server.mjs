@@ -17,7 +17,19 @@ import path from 'node:path';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 
-import { buildServer, DATA, EXPORTS, film } from './tools.mjs';
+import { createRequire } from 'node:module';
+import { buildServer, film } from './tools.mjs';
+
+// A server takes model names and image sources from a remote model, so it runs in safe mode: model
+// names only (no paths, no require of user files), images only as https/data/base64 (no local
+// files). The inventory is pinned to the data dir, not ./inventory.json of the launch directory.
+process.env.LEGO_SAFE_NAMES = '1';
+const core = createRequire(import.meta.url)('../lib/core.cjs');
+const DATA = core.DATA_DIR;
+process.env.LEGO_INVENTORY = process.env.LEGO_INVENTORY || path.join(DATA, 'inventory.json');
+const EXPORTS = path.join(DATA, 'exports');
+fs.mkdirSync(path.join(DATA, 'models'), { recursive: true });
+fs.mkdirSync(EXPORTS, { recursive: true });
 
 const args = process.argv.slice(2);
 const HTTP = args.includes('--http');
@@ -70,7 +82,9 @@ async function main() {
       if (!res.headersSent) res.writeHead(500).end();
     }
   });
-  server.listen(PORT, () => log(`HTTP ready on http://localhost:${PORT}/mcp, data in ${DATA}${token ? ', token required' : ''}`));
+  // without a token only this machine may connect (use a tunnel to reach it from outside)
+  const host = token ? (process.env.HOST || '0.0.0.0') : '127.0.0.1';
+  server.listen(PORT, host, () => log(`HTTP ready on http://${host}:${PORT}/mcp, data in ${DATA}${token ? ', token required' : ', localhost only (set LEGO_MCP_TOKEN to listen on all interfaces)'}`));
 }
 
 const shutdown = async () => { await film.close(); process.exit(0); };

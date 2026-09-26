@@ -12,23 +12,101 @@ const path = require('path');
 const core = require('./core.cjs');
 
 const API = process.env.BRICKOGNIZE_URL || 'https://api.brickognize.com';
+const MAX_BYTES = 15 * 1024 * 1024; // photos bigger than this are refused
+const MAX_PIXELS = 40e6; // decoded size limit (decompression bombs)
+const safeMode = () => core.safeMode();
+
+// On a server (LEGO_SAFE_NAMES=1) only https URLs to public hosts, data: URLs and base64 are
+// accepted: no local files, no http, no private/loopback/link-local addresses (SSRF).
+const dns = require('dns').promises;
+const net = require('net');
+function privateIp(ip) {
+  if (net.isIPv4(ip)) {
+    const [a, b] = ip.split('.').map(Number);
+    return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || a >= 224;
+  }
+  const v = ip.toLowerCase();
+  if (v.startsWith('::ffff:')) return privateIp(v.slice(7));
+  return v === '::1' || v === '::' || v.startsWith('fc') || v.startsWith('fd') || v.startsWith('fe8') || v.startsWith('fe9') || v.startsWith('fea') || v.startsWith('feb');
+}
+async function assertPublicUrl(u) {
+  const url = new URL(u);
+  if (url.protocol !== 'https:') throw new Error('only https image URLs are accepted');
+  const host = url.hostname.replace(/^\[|\]$/g, '');
+  const addrs = net.isIP(host) ? [host] : (await dns.lookup(host, { all: true })).map((a) => a.address);
+  if (!addrs.length || addrs.some(privateIp)) throw new Error('image host is not allowed');
+}
+
+async function download(u, hops = 0) {
+  if (safeMode()) await assertPublicUrl(u);
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 20000);
+  try {
+    const r = await fetch(u, { signal: ctl.signal, redirect: 'manual' });
+    if (r.status >= 300 && r.status < 400 && r.headers.get('location')) {
+      if (hops > 3) throw new Error('too many redirects');
+      return download(new URL(r.headers.get('location'), u).href, hops + 1);
+    }
+    if (!r.ok) throw new Error(`cannot download the image: HTTP ${r.status}`);
+    if (Number(r.headers.get('content-length') || 0) > MAX_BYTES) throw new Error('image is too large (max 15 MB)');
+    const chunks = [];
+    let size = 0;
+    for await (const ch of r.body) {
+      size += ch.length;
+      if (size > MAX_BYTES) throw new Error('image is too large (max 15 MB)');
+      chunks.push(ch);
+    }
+    const buf = Buffer.concat(chunks);
+    return { buf, mime: sniff(buf) !== 'application/octet-stream' ? sniff(buf) : (r.headers.get('content-type') || '').split(';')[0] };
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 async function loadImage(src) {
+  const out = await loadImageRaw(src);
+  if (out.buf.length > MAX_BYTES) throw new Error('image is too large (max 15 MB)');
+  if (!/^image\//.test(out.mime)) throw new Error('not an image (JPEG, PNG or WebP expected)');
+  const dim = dimensions(out.buf);
+  if (dim && dim.w * dim.h > MAX_PIXELS) throw new Error(`image is too large (${dim.w}×${dim.h}, max 40 megapixels)`);
+  return out;
+}
+
+// Width/height from the file header, before decoding (PNG, JPEG, WebP), to refuse decompression bombs.
+function dimensions(b) {
+  try {
+    if (b[0] === 0x89 && b[1] === 0x50) return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) };
+    if (b.slice(0, 4).toString() === 'RIFF' && b.slice(8, 12).toString() === 'WEBP') {
+      const kind = b.slice(12, 16).toString();
+      if (kind === 'VP8X') return { w: 1 + b.readUIntLE(24, 3), h: 1 + b.readUIntLE(27, 3) };
+      if (kind === 'VP8L') { const v = b.readUInt32LE(21); return { w: 1 + (v & 0x3fff), h: 1 + ((v >> 14) & 0x3fff) }; }
+      if (kind === 'VP8 ') return { w: b.readUInt16LE(26) & 0x3fff, h: b.readUInt16LE(28) & 0x3fff };
+    }
+    if (b[0] === 0xff && b[1] === 0xd8) {
+      let i = 2;
+      while (i + 9 < b.length) {
+        if (b[i] !== 0xff) { i++; continue; }
+        const m = b[i + 1];
+        if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) return { h: b.readUInt16BE(i + 5), w: b.readUInt16BE(i + 7) };
+        i += 2 + b.readUInt16BE(i + 2);
+      }
+    }
+  } catch { /* unknown layout: let the decoder decide */ }
+  return null;
+}
+
+async function loadImageRaw(src) {
   if (Buffer.isBuffer(src)) return { buf: src, mime: sniff(src) };
   const s = String(src);
   if (/^data:/.test(s)) {
-    const m = s.match(/^data:([^;]+);base64,(.*)$/);
+    const m = s.match(/^data:([^;,]+);base64,([\s\S]*)$/);
+    if (!m) throw new Error('bad data: URL (base64 expected)');
     return { buf: Buffer.from(m[2], 'base64'), mime: m[1] };
   }
-  if (/^https?:\/\//.test(s)) {
-    const r = await fetch(s);
-    if (!r.ok) throw new Error(`cannot download ${s}: ${r.status}`);
-    const buf = Buffer.from(await r.arrayBuffer());
-    return { buf, mime: r.headers.get('content-type') || sniff(buf) };
-  }
-  if (fs.existsSync(s)) { const buf = fs.readFileSync(s); return { buf, mime: sniff(buf), name: path.basename(s) }; }
+  if (/^https?:\/\//i.test(s)) return download(s);
+  if (!safeMode() && fs.existsSync(s)) { const buf = fs.readFileSync(s); return { buf, mime: sniff(buf), name: path.basename(s) }; }
   if (/^[A-Za-z0-9+/=\s]+$/.test(s) && s.length > 100) { const buf = Buffer.from(s, 'base64'); return { buf, mime: sniff(buf) }; }
-  throw new Error('image must be a file path, URL, data: URL or base64');
+  throw new Error(safeMode() ? 'image must be an https URL, data: URL or base64' : 'image must be a file path, URL, data: URL or base64');
 }
 
 function sniff(b) {
@@ -196,7 +274,15 @@ async function identify(src, opts) {
 async function segment(img, opts) {
   const o = opts || {};
   const { loadImage, createCanvas } = require('@napi-rs/canvas');
-  const im = await loadImage(img.buf);
+  let im = await loadImage(img.buf);
+  // work on at most 2000 px: enough detail for recognition, bounded memory and crop cost
+  const big = Math.max(im.width, im.height);
+  if (big > 2000) {
+    const k = 2000 / big;
+    const small = createCanvas(Math.round(im.width * k), Math.round(im.height * k));
+    small.getContext('2d').drawImage(im, 0, 0, small.width, small.height);
+    im = small;
+  }
   const S = Math.min(1, 480 / Math.max(im.width, im.height));
   const W = Math.round(im.width * S);
   const H = Math.round(im.height * S);

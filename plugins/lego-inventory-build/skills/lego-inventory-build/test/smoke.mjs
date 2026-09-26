@@ -90,7 +90,11 @@ async function exercise(client, label) {
   ok(`idea_build house ${built.size}: ${built.parts} parts, checked ok, preview rendered`);
   if (!process.env.OFFLINE) {
     const fx = path.join(ROOT, 'test/fixtures');
-    const ph = J(await call('parts_from_photo', { images: [path.join(fx, '3001-red.png'), path.join(fx, '3039-black.png')], add: true, qty: 2 }));
+    const dataUrl = (f) => 'data:image/png;base64,' + fs.readFileSync(path.join(fx, f)).toString('base64');
+    const ph = J(await call('parts_from_photo', { images: [dataUrl('3001-red.png'), dataUrl('3039-black.png')], add: true, qty: 2 }));
+    const denied = J(await call('parts_from_photo', { images: ['/etc/hosts'] }));
+    assert.match(denied.results[0].error, /https URL/);
+    ok('server refuses local file paths as images');
     assert.deepEqual(ph.results.map((r) => `${r.part.id} ${r.color}`), ['3001 red', '3039 black']);
     ok('parts_from_photo (Brickognize): ' + ph.results.map((r) => `${r.part.id} ${r.color} added=${r.added}`).join(', '));
   }

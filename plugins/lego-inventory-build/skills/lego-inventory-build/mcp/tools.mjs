@@ -13,17 +13,12 @@ const film = require('../lib/film.cjs');
 const ideas = require('../lib/ideas.cjs');
 const photo = require('../lib/photo.cjs');
 
-// Data dir is read per call (a serverless host switches it per request). The local server pins
-// the inventory to the data dir, never ./inventory.json of whatever cwd it was started in.
-const DATA = core.DATA_DIR;
-if (!process.env.VERCEL) process.env.LEGO_INVENTORY = process.env.LEGO_INVENTORY || path.join(DATA, 'inventory.json');
+// Everything below reads the data dir per call (core.ctx on the multi-user host).
 const exportsDir = () => {
   const d = path.join(core.dataDir(), 'exports');
   fs.mkdirSync(d, { recursive: true });
   return d;
 };
-const EXPORTS = exportsDir();
-fs.mkdirSync(path.join(DATA, 'models'), { recursive: true });
 
 const GUIDE = [
   fs.readFileSync(path.join(core.ROOT, 'reference/modeling.md'), 'utf8'),
@@ -61,7 +56,7 @@ const Model = z.object({
   title: z.string(),
   theta: z.number().optional().describe('camera azimuth, 35..45 looks from front right'),
   phi: z.number().optional().describe('camera elevation, ~30'),
-  steps: z.array(z.array(Part).min(1)).min(1).describe('building steps bottom-up, 1..12 parts each'),
+  steps: z.array(z.array(Part).min(1).max(24)).min(1).max(60).describe('building steps bottom-up, 1..12 parts each (max 60 steps, 400 parts)'),
 });
 
 const ModelRef = {
@@ -86,7 +81,7 @@ const safe = (fn) => async (a) => {
 
 // ------------------------------------------------------------------ server
 
-export { DATA, EXPORTS, film };
+export { film };
 
 export function buildServer(opts) {
   const fileUrl = (opts && opts.publish) || (() => null);
@@ -119,7 +114,7 @@ export function buildServer(opts) {
     title: 'Import parts list',
     description: 'Add parts from text. Formats: CSV "part,color,qty" (colour as key, name or BrickLink id), Rebrickable CSV export ("Part,Color,Quantity"), BrickLink XML, or JSON [{id,color,qty}].',
     inputSchema: {
-      data: z.string().describe('file contents'),
+      data: z.string().max(2_000_000).describe('file contents'),
       format: z.enum(['csv', 'rebrickable', 'bricklink', 'json']).optional().describe('auto-detected when omitted'),
       replace: z.boolean().optional().describe('replace the inventory instead of adding'),
       source: z.string().optional().describe('label, e.g. "box in the attic"'),
@@ -156,7 +151,7 @@ export function buildServer(opts) {
   s.registerTool('inventory_update', {
     title: 'Add or remove parts',
     description: 'Change quantities by hand. Positive qty adds, negative removes.',
-    inputSchema: { items: z.array(z.object({ id: z.string(), color: z.string(), qty: z.number().int() })).min(1) },
+    inputSchema: { items: z.array(z.object({ id: z.string().max(40), color: z.string().max(40), qty: z.number().int().min(-10000).max(10000) })).min(1).max(500) },
   }, safe(async ({ items }) => {
     const inv = core.loadInventory();
     const bad = [];
@@ -241,7 +236,13 @@ export function buildServer(opts) {
     const photos = [];
     const all = new Map();
     for (const src of srcs.slice(0, 6)) {
-      const r = await photo.identifyPile(src);
+      let r;
+      try {
+        r = await photo.identifyPile(src);
+      } catch (e) {
+        photos.push({ error: e.message });
+        continue;
+      }
       photos.push({ found: r.found, recognised: r.recognised, failed: r.parts.filter((p) => p.error).length });
       for (const it of r.items) {
         const k = it.id + '|' + it.color;
@@ -289,7 +290,7 @@ export function buildServer(opts) {
     const inv = core.loadInventory();
     const r = ideas.build(idea, inv, size, { shopping: !!allowMissing });
     const saved = core.saveModel({ ...r.model, name: idea });
-    const check = core.fullCheck(core.loadModel(saved.file), inv);
+    const check = core.fullCheck(core.loadModel(saved.name), inv);
     return text({ name: idea, title: r.model.title, size: r.size, parts: check.parts, steps: check.steps, notes: r.notes, missing: r.missing, ok: check.ok, next: `show_build with name="${idea}" (picture card)` });
   }));
 
@@ -321,7 +322,8 @@ export function buildServer(opts) {
     inputSchema: { model: Model, name: z.string().regex(/^[a-z0-9_-]+$/i).describe('file name, latin letters/digits') },
   }, safe(async ({ model, name }) => {
     const m = core.loadModel(JSON.parse(JSON.stringify(model)));
-    return text(core.saveModel({ ...m, name }));
+    const saved = core.saveModel({ ...m, name });
+    return text({ name: saved.name, saved: true, next: `show_build with name="${saved.name}"` });
   }));
 
   s.registerTool('model_list', {
@@ -359,13 +361,14 @@ export function buildServer(opts) {
       return f;
     });
     const urls = [];
-    for (const f of links) urls.push((await fileUrl(f)) || f);
+    // local server: file paths are the user's own; multi-user host: only public URLs
+    for (const f of links) urls.push((await fileUrl(f)) || (core.safeMode() && process.env.VERCEL ? '' : f));
     return { content: [...shots.map((s) => ({ type: 'image', data: s.png.toString('base64'), mimeType: 'image/png' })), { type: 'text', text: `frames at ${shots.map((s) => s.t.toFixed(2)).join(', ')} s of ${core.duration(m).toFixed(2)} s\n${urls.join('\n')}` }] };
   }));
 
   // ---------------------------------------------------------------- inline player (MCP Apps)
 
-  const PLAYER_URI = 'ui://lego/card-v3.html';
+  const PLAYER_URI = 'ui://lego/card-v4.html';
   const mediaOrigin = (opts && opts.mediaOrigin) || null;
   s.registerResource('lego-player', PLAYER_URI, { title: 'LEGO build player', mimeType: 'text/html;profile=mcp-app' }, async () => ({
     contents: [{
@@ -441,7 +444,8 @@ export function buildServer(opts) {
     const m = pickModel(a);
     const base = (m.name || 'model').replace(/[^a-z0-9_-]+/gi, '-') + (a.format === 'horizontal' ? '-16x9' : '');
     const r = await film.render(m, path.join(exportsDir(), base + '.mp4'), { format: a.format });
-    return text({ file: r.file, url: await fileUrl(r.file), seconds: +r.seconds.toFixed(2), frames: r.frames });
+    const u = await fileUrl(r.file);
+    return text({ url: u, ...(u ? {} : { file: r.file }), seconds: +r.seconds.toFixed(2), frames: r.frames });
   }));
 
   return s;

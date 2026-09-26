@@ -100,7 +100,7 @@ async function renderChromium(model, outFile, opts) {
 // Backend: Chromium (Playwright) when it is there, else Skia (@napi-rs/canvas, no browser, works on
 // Vercel). LEGO_RENDERER=node|chromium forces one. The parts sheet needs Chromium.
 function useNode(model) {
-  const want = process.env.LEGO_RENDERER;
+  const want = (require('./core.cjs').ctx.getStore() || {}).renderer || process.env.LEGO_RENDERER;
   if (want === 'chromium' || model === 'parts') return false;
   if (want === 'node') return true;
   try { require.resolve('playwright'); } catch { return true; }

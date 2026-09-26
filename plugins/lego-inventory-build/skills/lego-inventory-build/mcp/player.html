@@ -70,25 +70,28 @@
   window.addEventListener('openai:set_globals', () => { if (window.openai && window.openai.toolOutput) show(window.openai.toolOutput); });
 
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const url = (u) => (typeof u === 'string' && /^https:\/\//i.test(u) ? esc(u) : '');
+  const num = (n) => (Number.isFinite(Number(n)) ? Number(n) : 0);
+  const hex = (h) => (/^#[0-9a-f]{3,8}$/i.test(h || '') ? h : '#999');
   const sizeChanged = () => notify('ui/notifications/size-changed', { width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight });
   new ResizeObserver(sizeChanged).observe(document.body);
 
   function stage(d) {
     const h = d.format === 'horizontal';
     if (d.mode === 'video' && d.videoUrl) {
-      return `<div class="stage full ${h ? 'h' : ''}"><video src="${esc(d.videoUrl)}" poster="${esc(d.posterUrl || '')}" controls autoplay muted loop playsinline></video></div>`;
+      return `<div class="stage full ${h ? 'h' : ''}"><video src="${url(d.videoUrl)}" poster="${url(d.posterUrl)}" controls autoplay muted loop playsinline></video></div>`;
     }
     if (d.mode === 'steps' && d.stepUrls && d.stepUrls.length) {
       const n = d.stepUrls.length;
       return `<div class="stage full">
-        <img class="sq" id="stepimg" src="${esc(d.stepUrls[step])}" alt="Шаг ${step + 1}">
+        <img class="sq" id="stepimg" src="${url(d.stepUrls[step])}" alt="Шаг ${step + 1}">
         <div class="nav">
           <button id="prev" ${step === 0 ? 'disabled' : ''} aria-label="Назад">‹</button>
           <span><b>Шаг ${step + 1}</b> из ${n}</span>
           <button id="next" ${step === n - 1 ? 'disabled' : ''} aria-label="Дальше">›</button>
         </div></div>`;
     }
-    return `<div class="stage"><img class="sq" src="${esc(d.posterUrl || '')}" alt="${esc(d.title)}"></div>`;
+    return `<div class="stage"><img class="sq" src="${url(d.posterUrl)}" alt="${esc(d.title)}"></div>`;
   }
 
   function show(d) {
@@ -100,14 +103,14 @@
       ${stage(d)}
       <div class="side">
         <h2>${esc(d.title)}</h2>
-        <div class="sub">${d.parts} деталей · ${d.steps} шагов</div>
+        <div class="sub">${num(d.parts)} деталей · ${num(d.steps)} шагов</div>
         <div class="bom">${(d.bom || []).map((b) => `
-          <span class="sw" style="background:${esc(b.hex)}"></span>
-          <span>${esc(b.name)} <span class="q">· ${esc(b.colorName.toLowerCase())}</span></span>
-          <span class="q">×${b.qty}</span>`).join('')}</div>
+          <span class="sw" style="background:${hex(b.hex)}"></span>
+          <span>${esc(b.name)} <span class="q">· ${esc(String(b.colorName || b.color || '').toLowerCase())}</span></span>
+          <span class="q">×${num(b.qty)}</span>`).join('')}</div>
         <div class="row">
           ${d.mode !== 'steps' ? '<button class="act primary" data-mode="steps">Шаги картинками</button>' : ''}
-          ${d.mode !== 'video' ? '<button class="act" data-mode="video">▶ Видео сборки</button>' : `<a class="act" href="${esc(d.videoUrl)}" target="_blank" rel="noopener">Скачать mp4</a>`}
+          ${d.mode !== 'video' ? '<button class="act" data-mode="video">▶ Видео сборки</button>' : `<a class="act" href="${url(d.videoUrl)}" target="_blank" rel="noopener">Скачать mp4</a>`}
           ${d.mode !== 'picture' ? '<button class="act" data-mode="picture">Готовая модель</button>' : ''}
         </div>
       </div>`;

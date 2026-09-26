@@ -16,8 +16,12 @@ const EPS = 1e-6;
 
 // User data (inventory, saved models, renders) lives outside the skill folder so it survives
 // plugin updates and is shared by the CLI tools and the MCP server: $LEGO_DATA_DIR or ~/.lego-build.
-// Read on every call, so a host (Vercel) can switch it per request.
-const dataDir = () => path.resolve(process.env.LEGO_DATA_DIR || path.join(require('os').homedir(), '.lego-build'));
+// A multi-user host (the Vercel function) runs each request inside ctx.run({ dataDir, ... }), so
+// the data dir, inventory file and safe mode are per request, not process-wide env vars.
+const { AsyncLocalStorage } = require('async_hooks');
+const ctx = new AsyncLocalStorage();
+const cur = () => ctx.getStore() || {};
+const dataDir = () => path.resolve(cur().dataDir || process.env.LEGO_DATA_DIR || path.join(require('os').homedir(), '.lego-build'));
 
 // ------------------------------------------------------------------ colours and parts
 
@@ -85,7 +89,24 @@ function modelDirs() {
   return [path.join(process.cwd(), 'models'), path.join(dataDir(), 'models'), path.join(ROOT, 'src/models')];
 }
 
+// Paths are allowed for the local CLI only. Servers (MCP) set LEGO_SAFE_NAMES=1: then a model is
+// referred to by a plain name, looked up in the model dirs, and only built-in .js models (shipped
+// with the skill) may be require()d; user models are JSON and are only parsed.
+const SAFE_NAME = /^[a-z0-9_-]{1,64}$/i;
+const safeMode = () => !!cur().safe || process.env.LEGO_SAFE_NAMES === '1';
+
 function resolveModelFile(ref) {
+  if (safeMode()) {
+    if (typeof ref !== 'string' || !SAFE_NAME.test(ref)) throw new Error('model name must be latin letters, digits, "-" or "_"');
+    const builtin = path.join(ROOT, 'src/models');
+    for (const dir of modelDirs().filter((d) => d !== path.join(process.cwd(), 'models'))) {
+      for (const ext of dir === builtin ? ['.json', '.js'] : ['.json']) {
+        const p = path.join(dir, ref.toLowerCase() + ext);
+        if (fs.existsSync(p)) return p;
+      }
+    }
+    throw new Error(`no saved model "${ref}" (see model_list)`);
+  }
   if (/[\\/]/.test(ref) || /\.(js|json)$/.test(ref)) {
     const p = path.resolve(ref);
     if (fs.existsSync(p)) return p;
@@ -104,7 +125,11 @@ function loadModel(ref) {
   if (ref && typeof ref === 'object') return validateModel(ref);
   const file = resolveModelFile(ref);
   const name = path.basename(file).replace(/\.(js|json)$/, '');
-  if (file.endsWith('.json')) return validateModel(JSON.parse(fs.readFileSync(file, 'utf8')), name);
+  if (file.endsWith('.json')) {
+    let data;
+    try { data = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { throw new Error(`model "${name}" is not valid JSON`); }
+    return validateModel(data, name);
+  }
   delete require.cache[file];
   require(file);
   const m = global.window.MODELS[name];
@@ -114,11 +139,12 @@ function loadModel(ref) {
 
 function listModels() {
   const seen = new Map();
-  for (const dir of modelDirs()) {
+  const dirs = safeMode() ? modelDirs().filter((d) => d !== path.join(process.cwd(), 'models')) : modelDirs();
+  for (const dir of dirs) {
     if (!fs.existsSync(dir)) continue;
     for (const f of fs.readdirSync(dir)) {
       const m = f.match(/^(.+)\.(js|json)$/);
-      if (m && !seen.has(m[1])) seen.set(m[1], path.join(dir, f));
+      if (m && !seen.has(m[1]) && (!safeMode() || SAFE_NAME.test(m[1]))) seen.set(m[1], path.join(dir, f));
     }
   }
   return [...seen].map(([name, file]) => ({ name, file }));
@@ -126,6 +152,10 @@ function listModels() {
 
 function validateModel(m, name) {
   if (!m || !Array.isArray(m.steps) || !m.steps.length) throw new Error('model needs a non-empty "steps" array of steps');
+  // render time grows with steps (0.85 s of film each) and the checks with parts squared
+  if (m.steps.length > 60) throw new Error(`too many steps (${m.steps.length}, max 60)`);
+  const total = m.steps.reduce((a, st) => a + (Array.isArray(st) ? st.length : 0), 0);
+  if (total > 400) throw new Error(`too many parts (${total}, max 400)`);
   const errors = [];
   m.steps.forEach((st, i) => {
     if (!Array.isArray(st) || !st.length) errors.push(`step ${i + 1} must be a non-empty array of parts`);
@@ -225,6 +255,7 @@ function checkGeometry(model) {
 // flagged so the model is designed from drawable parts only.
 // Where: $LEGO_INVENTORY, else ./inventory.json if it exists, else <data dir>/inventory.json.
 function defaultInventoryPath() {
+  if (cur().dataDir) return path.join(dataDir(), 'inventory.json');
   if (process.env.LEGO_INVENTORY) return path.resolve(process.env.LEGO_INVENTORY);
   const local = path.resolve('inventory.json');
   if (fs.existsSync(local)) return local;
@@ -418,7 +449,7 @@ function formatCheck(res) {
 }
 
 function saveModel(model, dir) {
-  const name = String(model.name || model.title || 'model').toLowerCase().replace(/[^a-z0-9а-яё_-]+/gi, '-').replace(/^-|-$/g, '') || 'model';
+  const name = String(model.name || model.title || 'model').toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64) || 'model';
   const d = dir || path.join(dataDir(), 'models');
   fs.mkdirSync(d, { recursive: true });
   const file = path.join(d, name + '.json');
@@ -431,7 +462,7 @@ function saveModel(model, dir) {
 const duration = (model) => 0.55 + (model.step || 0.85) * model.steps.length + 0.45 + 3.6 + 1.5;
 
 module.exports = {
-  ROOT, dataDir, get DATA_DIR() { return dataDir(); }, LEGO, colorKey, partId, drawable, catalog,
+  ROOT, ctx, safeMode, dataDir, get DATA_DIR() { return dataDir(); }, LEGO, colorKey, partId, drawable, catalog,
   loadModel, listModels, validateModel, saveModel, bom, checkGeometry, duration,
   defaultInventoryPath, loadInventory, saveInventory, parseInventory, fetchSet, mergeItems,
   summarizeInventory, fitInventory, fullCheck, formatCheck,
