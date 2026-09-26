@@ -99,10 +99,31 @@ export default async function handler(req, res) {
   }
   if (req.method !== 'POST') return res.status(405).end();
   const user = userOf(req);
-  if (!user) return res.status(401).json({ error: 'unauthorized: add ?key=<key> to the connector URL' });
+  const ua = String(req.headers['user-agent'] || '').slice(0, 60);
+  if (!user) {
+    console.log(JSON.stringify({ ev: 'unauthorized', ua, hasKey: /[?&]key=/.test(req.url || ''), auth: !!req.headers.authorization }));
+    return res.status(401).json({ error: 'unauthorized: add ?key=<key> to the connector URL' });
+  }
 
   let body;
-  try { body = await readBody(req); } catch { return res.status(400).json({ error: 'bad json' }); }
+  try { body = await readBody(req); } catch (e) {
+    console.log(JSON.stringify({ ev: 'bad_json', ua, err: e.message }));
+    return res.status(400).json({ error: 'bad json' });
+  }
+  const t0 = Date.now();
+  const msgs = Array.isArray(body) ? body : [body];
+  const what = msgs.map((m) => (m && m.method === 'tools/call' ? `tools/call:${m.params && m.params.name}` : m && m.method)).join(',');
+  const args = msgs.filter((m) => m && m.method === 'tools/call').map((m) => Object.keys((m.params && m.params.arguments) || {}).join('|'));
+  const origEnd = res.end.bind(res);
+  let sent = '';
+  res.end = (chunk, ...rest) => {
+    if (chunk) sent = String(chunk).slice(0, 300);
+    return origEnd(chunk, ...rest);
+  };
+  res.on('finish', () => {
+    const err = /"isError":true|"error":\{/.test(sent) ? sent.replace(/\s+/g, ' ').slice(0, 300) : undefined;
+    console.log(JSON.stringify({ ev: 'mcp', user: user.slice(0, 8), what, args: args.length ? args : undefined, status: res.statusCode, ms: Date.now() - t0, ua, err }));
+  });
 
   const run = async () => {
     const dir = path.join(ROOT_TMP, user);

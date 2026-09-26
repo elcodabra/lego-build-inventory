@@ -164,8 +164,11 @@ async function identify(src, opts) {
     candidates,
     colors: colors.slice(0, 4),
     confident: !!top && top.score >= 0.6 && !!colors[0] && !!colors[0].color && (colors[0].score >= 0.6 || !!agree),
-    pile: coverage < 0.35,
-    hint: coverage < 0.35 ? 'Only one part was recognised, and it covers a small part of the photo: this looks like a pile. Read the photo yourself and import a CSV, or photograph parts one by one.' : undefined,
+    // a lone part often fills little of a phone photo, so small coverage alone is only a hint;
+    // the caller (the model) sees the photo and decides whether it is a pile
+    pile: coverage < 0.08,
+    coverage: +coverage.toFixed(2),
+    hint: coverage < 0.08 ? 'Only one part was recognised and it is tiny in the frame: if the photo shows many parts, read them yourself (lego_photo_guide) and use inventory_import.' : undefined,
   };
 }
 
