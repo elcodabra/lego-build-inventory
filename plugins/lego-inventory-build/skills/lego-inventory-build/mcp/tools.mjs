@@ -35,7 +35,7 @@ const INSTRUCTIONS = `LEGO builder that designs models ONLY from parts the user 
 Photos: pass the uploaded image FILE to the tools, do not describe it yourself. Many parts on one
 photo -> parts_from_pile_photo (the server finds and recognises every part). One part per photo ->
 parts_from_photo. Show the user the resulting list, fix doubts with inventory_update, then
-ideas_suggest -> offer 2-4 ideas -> idea_build -> model_preview (show the image link).
+ideas_suggest -> offer 2-4 ideas -> idea_build -> show_build (shows the build video right in the chat).
 Only if the file cannot be passed: read the photo yourself per lego_photo_guide and inventory_import.
 Workflow for a custom model: 1) inventory_show (import with inventory_import / inventory_add_set if empty).
 2) lego_guide once, to learn coordinates and rules. 3) Design a model as JSON steps using ONLY
@@ -359,6 +359,64 @@ export function buildServer(opts) {
     const urls = [];
     for (const f of links) urls.push((await fileUrl(f)) || f);
     return { content: [...shots.map((s) => ({ type: 'image', data: s.png.toString('base64'), mimeType: 'image/png' })), { type: 'text', text: `frames at ${shots.map((s) => s.t.toFixed(2)).join(', ')} s of ${core.duration(m).toFixed(2)} s\n${urls.join('\n')}` }] };
+  }));
+
+  // ---------------------------------------------------------------- inline player (MCP Apps)
+
+  const PLAYER_URI = 'ui://lego/player-v1.html';
+  const mediaOrigin = (opts && opts.mediaOrigin) || null;
+  s.registerResource('lego-player', PLAYER_URI, { title: 'LEGO build player', mimeType: 'text/html;profile=mcp-app' }, async () => ({
+    contents: [{
+      uri: PLAYER_URI,
+      mimeType: 'text/html;profile=mcp-app',
+      text: fs.readFileSync(path.join(core.ROOT, 'mcp/player.html'), 'utf8'),
+      _meta: {
+        ui: { prefersBorder: true, csp: { connectDomains: [], resourceDomains: mediaOrigin ? [mediaOrigin] : [] } },
+        'openai/widgetCSP': { connect_domains: [], resource_domains: mediaOrigin ? [mediaOrigin] : [] },
+        'openai/widgetDescription': 'Shows the build: the step-by-step video (or the final picture) and the parts list. No need to repeat the parts list in text.',
+        'openai/ui': { availableDisplayModes: ['inline', 'fullscreen'] },
+      },
+    }],
+  }));
+
+  const colorInfo = (k) => core.LEGO.COLORS[k] || { hex: '#999', ru: k };
+  s.registerTool('show_build', {
+    title: 'Show the build in the chat',
+    description: 'Use this to SHOW a model to the user inside the chat: a player with the step-by-step build video and the parts list. Call it after idea_build or model_save with the model name. video=true renders the mp4 (~30 s); without it the final picture is shown with a button to make the video.',
+    inputSchema: {
+      name: z.string().describe('saved model name, e.g. the idea name after idea_build'),
+      video: z.boolean().optional().describe('render and show the video (default true)'),
+      format: z.enum(['vertical', 'horizontal']).optional(),
+    },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+    _meta: {
+      ui: { resourceUri: PLAYER_URI },
+      'openai/outputTemplate': PLAYER_URI,
+      'openai/widgetAccessible': true,
+      'openai/toolInvocation/invoking': 'Собираю видео…',
+      'openai/toolInvocation/invoked': 'Готово',
+    },
+  }, safe(async ({ name, video, format }) => {
+    const m = core.loadModel(name);
+    const base = String(m.name || name).replace(/[^a-z0-9_-]+/gi, '-') + (format === 'horizontal' ? '-16x9' : '');
+    const [shot] = await film.snap(m, ['final'], format);
+    const pf = path.join(exportsDir(), `${base}-final.png`);
+    fs.writeFileSync(pf, shot.png);
+    const posterUrl = await fileUrl(pf);
+    let videoUrl = null;
+    if (video !== false) {
+      const r = await film.render(m, path.join(exportsDir(), base + '.mp4'), { format });
+      videoUrl = await fileUrl(r.file);
+    }
+    const bom = core.bom(m).map((b) => ({ id: b.id, name: b.name, color: b.color, colorName: colorInfo(b.color).ru, hex: colorInfo(b.color).hex, qty: b.qty }));
+    const data = { name: m.name || name, title: m.title, parts: m.steps.flat().length, steps: m.steps.length, format: format || 'vertical', posterUrl, videoUrl, bom };
+    return {
+      structuredContent: data,
+      content: [
+        { type: 'text', text: `${m.title}: ${data.parts} деталей, ${data.steps} шагов. ${videoUrl ? 'Видео: ' + videoUrl : 'Картинка: ' + posterUrl}` },
+        ...(videoUrl || !posterUrl ? [] : [{ type: 'image', data: shot.png.toString('base64'), mimeType: 'image/png' }]),
+      ],
+    };
   }));
 
   s.registerTool('model_render', {

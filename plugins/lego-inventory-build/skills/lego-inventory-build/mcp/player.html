@@ -1,0 +1,124 @@
+<!doctype html>
+<!-- LEGO build player: shown inline in the chat (MCP Apps / ChatGPT) by the show_build tool.
+     No framework, no external scripts. Talks to the host over the MCP Apps postMessage bridge. -->
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: light dark; --bg: #fff; --ink: #1f2328; --muted: #6b7280; --line: #e5e7eb; --chip: #f3f4f6; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #1e1e1e; --ink: #f3f4f6; --muted: #9ca3af; --line: #333; --chip: #2a2a2a; } }
+  html, body { margin: 0; background: transparent; font: 14px/1.4 Inter, system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); }
+  .card { display: flex; gap: 16px; padding: 12px; align-items: flex-start; flex-wrap: wrap; }
+  .media { position: relative; flex: 0 0 auto; width: min(100%, 300px); aspect-ratio: 9 / 16; border-radius: 14px; overflow: hidden; background: #fff; border: 1px solid var(--line); }
+  .media.h { aspect-ratio: 16 / 9; width: min(100%, 560px); }
+  video, img.poster { width: 100%; height: 100%; object-fit: contain; display: block; background: #fff; }
+  .side { flex: 1 1 220px; min-width: 200px; }
+  h2 { margin: 2px 0 2px; font-size: 20px; }
+  .sub { color: var(--muted); margin-bottom: 10px; }
+  .bom { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 10px; align-items: center; max-height: 320px; overflow: auto; padding-right: 4px; }
+  .sw { width: 14px; height: 14px; border-radius: 4px; border: 1px solid rgba(0,0,0,.2); }
+  .q { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .row { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  button, a.btn { border: 1px solid var(--line); background: var(--chip); color: var(--ink); border-radius: 999px; padding: 6px 12px; font: inherit; cursor: pointer; text-decoration: none; }
+  button[disabled] { opacity: .5; cursor: default; }
+  .wait { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(255,255,255,.75); color: #111; font-weight: 600; }
+  .hidden { display: none !important; }
+  .empty { padding: 16px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div id="app" class="empty">Загружаю сборку…</div>
+<script>
+(() => {
+  const app = document.getElementById('app');
+  const pending = new Map();
+  let nextId = 1;
+  let data = null;
+
+  const post = (msg) => window.parent.postMessage({ jsonrpc: '2.0', ...msg }, '*');
+  const request = (method, params) => {
+    const id = nextId++;
+    post({ id, method, params });
+    return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
+  };
+  const notify = (method, params) => post({ method, params });
+
+  window.addEventListener('message', (e) => {
+    if (e.source !== window.parent) return;
+    const m = e.data;
+    if (!m || m.jsonrpc !== '2.0') return;
+    if (m.id !== undefined && pending.has(m.id)) {
+      const p = pending.get(m.id); pending.delete(m.id);
+      m.error ? p.reject(m.error) : p.resolve(m.result);
+      return;
+    }
+    if (m.method === 'ui/notifications/tool-result') show(m.params && m.params.structuredContent);
+  }, { passive: true });
+
+  // ChatGPT also exposes the result on window.openai (older bridge); use it if the host already has it.
+  window.addEventListener('openai:set_globals', () => { if (window.openai && window.openai.toolOutput) show(window.openai.toolOutput); });
+
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const sizeChanged = () => notify('ui/notifications/size-changed', { width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight });
+  new ResizeObserver(sizeChanged).observe(document.body);
+
+  function show(d) {
+    if (!d || !d.name) return;
+    data = d;
+    app.className = 'card';
+    const horiz = d.format === 'horizontal';
+    app.innerHTML = `
+      <div class="media ${horiz ? 'h' : ''}">
+        ${d.videoUrl
+          ? `<video src="${esc(d.videoUrl)}" poster="${esc(d.posterUrl || '')}" controls autoplay muted loop playsinline></video>`
+          : `<img class="poster" src="${esc(d.posterUrl || '')}" alt="${esc(d.title)}">`}
+        <div class="wait ${d.videoUrl ? 'hidden' : ''}" id="wait">${d.posterUrl ? '' : 'Рисую…'}</div>
+      </div>
+      <div class="side">
+        <h2>${esc(d.title)}</h2>
+        <div class="sub">${d.parts} деталей · ${d.steps} шагов${d.size ? ' · ' + esc(d.size) : ''}</div>
+        <div class="bom">${(d.bom || []).map((b) => `
+          <span class="sw" style="background:${esc(b.hex)}"></span>
+          <span>${esc(b.name)} <span class="q">${esc(b.id)} · ${esc(b.colorName)}</span></span>
+          <span class="q">×${b.qty}</span>`).join('')}</div>
+        <div class="row">
+          ${d.videoUrl ? `<a class="btn" href="${esc(d.videoUrl)}" target="_blank" rel="noopener">Скачать mp4</a>`
+            : `<button id="mk">▶ Сделать видео сборки</button>`}
+          <button id="fs">Во весь экран</button>
+        </div>
+      </div>`;
+    const mk = document.getElementById('mk');
+    if (mk) mk.onclick = makeVideo;
+    document.getElementById('fs').onclick = () => request('ui/request-display-mode', { mode: 'fullscreen' }).catch(() => {});
+    sizeChanged();
+  }
+
+  async function makeVideo() {
+    const mk = document.getElementById('mk');
+    mk.disabled = true; mk.textContent = 'Рендерю видео… (~30 с)';
+    try {
+      const r = await request('tools/call', { name: 'show_build', arguments: { name: data.name, video: true, format: data.format } });
+      if (r && r.structuredContent) show(r.structuredContent);
+      else throw new Error('no result');
+    } catch (e) {
+      mk.disabled = false; mk.textContent = 'Не вышло, попробовать ещё раз';
+    }
+  }
+
+  request('ui/initialize', {
+    protocolVersion: '2026-01-26',
+    appInfo: { name: 'lego-build-player', version: '1.0.0' },
+    appCapabilities: { availableDisplayModes: ['inline', 'fullscreen'] },
+  }).then(() => {
+    notify('ui/notifications/initialized', {});
+    if (window.openai && window.openai.toolOutput) show(window.openai.toolOutput);
+  }).catch(() => {
+    if (window.openai && window.openai.toolOutput) show(window.openai.toolOutput);
+  });
+  // hosts that never answer ui/initialize but set window.openai
+  setTimeout(() => { if (!data && window.openai && window.openai.toolOutput) show(window.openai.toolOutput); }, 800);
+})();
+</script>
+</body>
+</html>

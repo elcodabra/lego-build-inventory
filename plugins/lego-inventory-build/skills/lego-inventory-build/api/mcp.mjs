@@ -17,6 +17,9 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 const ROOT_TMP = '/tmp/lego';
 const STATE = process.env.STATE_BLOB_TOKEN;
 const MEDIA = process.env.MEDIA_BLOB_TOKEN;
+// Public store host, allowed in the player's CSP. From MEDIA_ORIGIN, or the store id in the token
+// (vercel_blob_rw_<storeId>_<secret> -> https://<storeid lowercase>.public.blob.vercel-storage.com).
+const MEDIA_ORIGIN = process.env.MEDIA_ORIGIN || (MEDIA && /^vercel_blob_rw_([A-Za-z0-9]+)_/.test(MEDIA) ? `https://${MEDIA.match(/^vercel_blob_rw_([A-Za-z0-9]+)_/)[1].toLowerCase()}.public.blob.vercel-storage.com` : null);
 let blob = null;
 const B = async () => (blob ||= await import('@vercel/blob'));
 
@@ -136,7 +139,7 @@ export default async function handler(req, res) {
     process.env.LEGO_INVENTORY = path.join(dir, 'inventory.json');
     process.env.LEGO_RENDERER = 'node';
     const { buildServer } = await import('../mcp/tools.mjs');
-    const srv = buildServer({ publish, dataDir: dir });
+    const srv = buildServer({ publish, dataDir: dir, mediaOrigin: MEDIA_ORIGIN });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     await srv.connect(transport);
     await transport.handleRequest(req, res, body);
