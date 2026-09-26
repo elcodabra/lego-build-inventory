@@ -92,4 +92,39 @@ async function decode(buf) {
   return { width: im.width, height: im.height, canvas: c, ctx: x, image: im };
 }
 
-module.exports = { snap, render, decode, frameTime, available: () => { try { canvasLib(); return true; } catch { return false; } } };
+// The model alone, centred on a square (for chat cards). upto = number of steps to draw (default
+// all); with upto, earlier steps are pale and the parts of the last step get the yellow outline,
+// like in the booklet. The camera frames the whole finished model, so all step pictures line up.
+async function hero(model, opts) {
+  const o = opts || {};
+  const S = o.size || 900;
+  const { createCanvas } = canvasLib();
+  loadBooklet();
+  const L = global.window.LEGO;
+  const all = model.steps.flat().map((s) => L.place(s));
+  const theta = model.theta == null ? 40 : model.theta;
+  const phi = model.phi == null ? 30 : model.phi;
+  const b = L.bounds(all);
+  const e = L.extent(b, theta, phi);
+  const scale = (S * 0.82) / Math.max(e.w, e.h);
+  const c = createCanvas(S, S);
+  const x = c.getContext('2d');
+  x.fillStyle = o.background || '#ffffff';
+  x.fillRect(0, 0, S, S);
+  const cam = L.camera({ theta, phi, scale, cx: S / 2, cy: S / 2, target: b.center });
+  const n = o.upto == null ? model.steps.length : o.upto;
+  const items = [];
+  model.steps.slice(0, n).forEach((st, k) => {
+    const last = o.upto != null && k === n - 1;
+    for (const spec of st) items.push({ part: L.place(spec), pale: o.upto != null && !last ? 0.45 : 0, halo: last ? 1 : 0 });
+  });
+  L.draw(x, items, cam, { lineWidth: Math.max(1.5, scale * 0.03) });
+  if (o.upto != null) {
+    x.fillStyle = '#1f2328';
+    x.font = `bold ${Math.round(S * 0.09)}px Inter`;
+    x.fillText(String(n), S * 0.05, S * 0.12);
+  }
+  return c.toBuffer('image/png');
+}
+
+module.exports = { snap, render, decode, hero, frameTime, available: () => { try { canvasLib(); return true; } catch { return false; } } };

@@ -35,7 +35,9 @@ const INSTRUCTIONS = `LEGO builder that designs models ONLY from parts the user 
 Photos: pass the uploaded image FILE to the tools, do not describe it yourself. Many parts on one
 photo -> parts_from_pile_photo (the server finds and recognises every part). One part per photo ->
 parts_from_photo. Show the user the resulting list, fix doubts with inventory_update, then
-ideas_suggest -> offer 2-4 ideas -> idea_build -> show_build (shows the build video right in the chat).
+ideas_suggest -> offer 2-4 ideas -> idea_build -> show_build (picture card in the chat).
+Be brief: the card shows the model and its parts, never retell steps or parts lists in text.
+Offer "шаги картинками" (show_build mode=steps) or "видео" (mode=video); make them only on request.
 Only if the file cannot be passed: read the photo yourself per lego_photo_guide and inventory_import.
 Workflow for a custom model: 1) inventory_show (import with inventory_import / inventory_add_set if empty).
 2) lego_guide once, to learn coordinates and rules. 3) Design a model as JSON steps using ONLY
@@ -288,7 +290,7 @@ export function buildServer(opts) {
     const r = ideas.build(idea, inv, size, { shopping: !!allowMissing });
     const saved = core.saveModel({ ...r.model, name: idea });
     const check = core.fullCheck(core.loadModel(saved.file), inv);
-    return text({ name: idea, title: r.model.title, size: r.size, parts: check.parts, steps: check.steps, notes: r.notes, missing: r.missing, ok: check.ok, next: `model_preview with name="${idea}"` });
+    return text({ name: idea, title: r.model.title, size: r.size, parts: check.parts, steps: check.steps, notes: r.notes, missing: r.missing, ok: check.ok, next: `show_build with name="${idea}" (picture card)` });
   }));
 
   s.registerTool('model_check', {
@@ -363,7 +365,7 @@ export function buildServer(opts) {
 
   // ---------------------------------------------------------------- inline player (MCP Apps)
 
-  const PLAYER_URI = 'ui://lego/player-v1.html';
+  const PLAYER_URI = 'ui://lego/card-v3.html';
   const mediaOrigin = (opts && opts.mediaOrigin) || null;
   s.registerResource('lego-player', PLAYER_URI, { title: 'LEGO build player', mimeType: 'text/html;profile=mcp-app' }, async () => ({
     contents: [{
@@ -382,10 +384,13 @@ export function buildServer(opts) {
   const colorInfo = (k) => core.LEGO.COLORS[k] || { hex: '#999', ru: k };
   s.registerTool('show_build', {
     title: 'Show the build in the chat',
-    description: 'Use this to SHOW a model to the user inside the chat: a player with the step-by-step build video and the parts list. Call it after idea_build or model_save with the model name. video=true renders the mp4 (~30 s); without it the final picture is shown with a button to make the video.',
+    description: 'Use this to SHOW a model inside the chat as a card (do not describe it in text). ' +
+      'mode "picture" (default, fast): the finished model and its parts, call it right after idea_build. ' +
+      'mode "steps": step-by-step pictures, when the user asks how to build it. ' +
+      'mode "video": the build video (~25 s to render), only when the user asks for a video.',
     inputSchema: {
       name: z.string().describe('saved model name, e.g. the idea name after idea_build'),
-      video: z.boolean().optional().describe('render and show the video (default true)'),
+      mode: z.enum(['picture', 'steps', 'video']).optional(),
       format: z.enum(['vertical', 'horizontal']).optional(),
     },
     annotations: { readOnlyHint: true, openWorldHint: false },
@@ -393,29 +398,38 @@ export function buildServer(opts) {
       ui: { resourceUri: PLAYER_URI },
       'openai/outputTemplate': PLAYER_URI,
       'openai/widgetAccessible': true,
-      'openai/toolInvocation/invoking': 'Собираю видео…',
+      'openai/toolInvocation/invoking': 'Рисую…',
       'openai/toolInvocation/invoked': 'Готово',
     },
-  }, safe(async ({ name, video, format }) => {
+  }, safe(async ({ name, mode, format }) => {
     const m = core.loadModel(name);
+    const md = mode || 'picture';
     const base = String(m.name || name).replace(/[^a-z0-9_-]+/gi, '-') + (format === 'horizontal' ? '-16x9' : '');
-    const [shot] = await film.snap(m, ['final'], format);
-    const pf = path.join(exportsDir(), `${base}-final.png`);
-    fs.writeFileSync(pf, shot.png);
-    const posterUrl = await fileUrl(pf);
+    // model-only square pictures: the finished model, and for steps one picture per step with
+    // earlier parts pale and the new ones outlined (same camera, so they line up when paging)
+    const nf = require('../lib/nodefilm.cjs');
+    const shots = [{ png: await nf.hero(m, { size: 720 }) }];
+    if (md === 'steps') for (let k = 1; k <= m.steps.length; k++) shots.push({ png: await nf.hero(m, { size: 720, upto: k }) });
+    const urls = [];
+    await Promise.all(shots.map(async (sh, i) => {
+      const f = path.join(exportsDir(), `${base}-${i ? 'step' + i : 'model'}.png`);
+      fs.writeFileSync(f, sh.png);
+      urls[i] = await fileUrl(f);
+    }));
     let videoUrl = null;
-    if (video !== false) {
+    if (md === 'video') {
       const r = await film.render(m, path.join(exportsDir(), base + '.mp4'), { format });
       videoUrl = await fileUrl(r.file);
     }
     const bom = core.bom(m).map((b) => ({ id: b.id, name: b.name, color: b.color, colorName: colorInfo(b.color).ru, hex: colorInfo(b.color).hex, qty: b.qty }));
-    const data = { name: m.name || name, title: m.title, parts: m.steps.flat().length, steps: m.steps.length, format: format || 'vertical', posterUrl, videoUrl, bom };
+    const data = {
+      name: m.name || name, title: m.title, parts: m.steps.flat().length, steps: m.steps.length, format: format || 'vertical', mode: md,
+      posterUrl: urls[0], stepUrls: urls.slice(1), videoUrl, bom,
+    };
+    const plain = md === 'video' ? `видео ${videoUrl}` : md === 'steps' ? `шаги ${urls.slice(1).join(' ')}` : `картинка ${urls[0]}`;
     return {
       structuredContent: data,
-      content: [
-        { type: 'text', text: `${m.title}: ${data.parts} деталей, ${data.steps} шагов. ${videoUrl ? 'Видео: ' + videoUrl : 'Картинка: ' + posterUrl}` },
-        ...(videoUrl || !posterUrl ? [] : [{ type: 'image', data: shot.png.toString('base64'), mimeType: 'image/png' }]),
-      ],
+      content: [{ type: 'text', text: `Карточка «${m.title}» (${data.parts} деталей, ${data.steps} шагов) уже показана пользователю. Не пересказывай шаги и детали, ответь одной фразой и предложи ${md === 'picture' ? '«шаги картинками» или «видео»' : md === 'steps' ? '«видео»' : 'собрать что-то ещё'}. (Если карточка не отобразилась, дай ссылку: ${plain})` }],
     };
   }));
 
