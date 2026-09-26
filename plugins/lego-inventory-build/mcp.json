@@ -1,0 +1,10 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "lego": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${PLUGIN_ROOT}/skills/lego-inventory-build/mcp/launch.mjs"]
+    }
+  }
+}

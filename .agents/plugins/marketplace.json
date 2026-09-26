@@ -1,0 +1,12 @@
+{
+  "name": "lego-tools",
+  "interface": { "displayName": "LEGO tools" },
+  "plugins": [
+    {
+      "name": "lego-inventory-build",
+      "source": { "source": "local", "path": "./plugins/lego-inventory-build" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Productivity"
+    }
+  ]
+}

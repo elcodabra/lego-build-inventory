@@ -1,0 +1,14 @@
+{
+  "name": "lego-inventory-build",
+  "version": "0.1.0",
+  "description": "Design LEGO models only from the parts you own, check geometry and part availability, render booklet-style build instructions (PNG/mp4). Skill + MCP server.",
+  "author": { "name": "elcodabra" },
+  "license": "MIT",
+  "keywords": ["lego", "moc", "inventory", "rebrickable", "bricklink", "instructions"],
+  "mcpServers": {
+    "lego": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/skills/lego-inventory-build/mcp/launch.mjs"]
+    }
+  }
+}

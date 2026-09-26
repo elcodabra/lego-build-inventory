@@ -1,0 +1,12 @@
+{
+  "name": "lego-tools",
+  "description": "Build LEGO models from the bricks you actually own",
+  "owner": { "name": "elcodabra" },
+  "plugins": [
+    {
+      "name": "lego-inventory-build",
+      "source": "./plugins/lego-inventory-build",
+      "description": "Design LEGO models from your own parts inventory and render step-by-step instructions"
+    }
+  ]
+}

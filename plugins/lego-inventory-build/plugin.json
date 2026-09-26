@@ -1,0 +1,26 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "lego-inventory-build",
+  "version": "0.1.0",
+  "description": "Design LEGO models only from the parts you own, check geometry and part availability, render booklet-style build instructions (PNG/mp4).",
+  "author": { "name": "elcodabra" },
+  "license": "MIT",
+  "keywords": ["lego", "moc", "inventory", "rebrickable", "bricklink", "instructions"],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "LEGO from my bricks",
+        "shortDescription": "Design LEGO models from the parts you own",
+        "longDescription": "Import your parts (sets, Rebrickable or BrickLink exports, CSV), design a model only from what you have, check it for overlaps, floating parts and missing parts, and render step-by-step instructions as PNG and mp4.",
+        "developerName": "elcodabra",
+        "category": "Productivity",
+        "capabilities": ["Read", "Write"],
+        "defaultPrompt": [
+          "Use LEGO from my bricks: here are my sets 31058 and 10696, what can I build?",
+          "Use LEGO from my bricks to design a small cat from my parts and render the instructions."
+        ],
+        "brandColor": "#FFD21A"
+      }
+    }
+  }
+}
