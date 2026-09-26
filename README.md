@@ -2,6 +2,16 @@
 
 A Skill plus an MCP server for Claude and ChatGPT. It designs LEGO models **only from the parts you actually own**, checks that the model holds together and that you have enough of every part, and renders step-by-step instructions in the style of an official booklet (PNG, mp4 1080×1920 / 1920×1080).
 
+**Main scenario: photograph your parts → get ideas for what you can build → get the instructions.**
+
+```
+📷 photo of one part  → Brickognize (part number + colour) ─┐
+📷 photo of a pile    → Claude/ChatGPT reads it by eye → CSV ─┼→ inventory → ideas_suggest → idea_build → preview / mp4
+sets / CSV / BrickLink                                    ─┘
+```
+
+Ideas are parametric models: house, tree, mushroom, rocket, robot, tower, heart, pyramid. Each is built from your parts: it picks the largest size that fits, the colours you have, and the part lengths available. Every proposed model passes the check (no overlaps, nothing floating, all parts in the inventory). Alongside the ideas that build now, it lists the ones that are close, with the exact parts missing. On top of the ideas, the agent can design any custom model from the same parts.
+
 Built on the [siliconbag/lego-build](https://github.com/siliconbag/lego-build) engine (MIT). On top of it this repo adds an inventory, a check against the inventory with substitute suggestions, JSON models, the MCP server, and packaging for Claude Code, claude.ai, Claude Desktop, Codex and ChatGPT.
 
 ```
@@ -47,6 +57,9 @@ The token in `?key=` is simple protection for personal use. For a public service
 
 | Tool | What it does |
 |---|---|
+| `parts_from_photo` | photos of single parts → part number and colour (Brickognize), `add=true` adds them to the inventory. In ChatGPT it accepts uploaded files (`openai/fileParams`) |
+| `lego_photo_guide` | how to read a pile of parts from a photo by eye and write a CSV |
+| `ideas_suggest` / `idea_build` | what can be built from the inventory right now and what is close; generate the chosen idea |
 | `inventory_show` / `inventory_import` / `inventory_add_set` / `inventory_update` / `inventory_clear` | parts inventory: CSV, Rebrickable CSV, BrickLink XML, JSON, set numbers (needs `REBRICKABLE_API_KEY`) |
 | `lego_guide`, `lego_catalog` | modelling rules, parts and colours the engine can draw |
 | `model_check` | overlaps, floating parts, parts missing from the inventory plus spare substitutes |
@@ -61,6 +74,10 @@ Data lives in `~/.lego-build/` (`LEGO_DATA_DIR`) and is shared between the skill
 
 ```bash
 cd plugins/lego-inventory-build/skills/lego-inventory-build
+node tools/photo.cjs --add --qty 4 part1.jpg part2.jpg   # photos of single parts → inventory
+node tools/ideas.cjs                             # what can be built now and what is close
+node tools/ideas.cjs build house                 # → models/house.json (already checked)
+node tools/snap.cjs final --model models/house.json
 node tools/inventory.cjs add-set 31058          # or: import my.csv / add 3001 red 4
 node tools/inventory.cjs show
 node tools/model-json.cjs microduck > models/duck.json
@@ -73,6 +90,8 @@ npm test                                         # e2e: CLI + MCP stdio + MCP HT
 
 ## Limitations
 
+- **Photos.** Brickognize recognises one part per photo (the most prominent one) and needs network access. A pile is read by the chat model itself (Claude/ChatGPT vision): that works, but the count is approximate and similar parts (1×4 vs 1×6, light vs dark grey) can get mixed up, so the agent shows the list for confirmation. Best results: parts laid out on a plain background, not overlapping, in daylight. HEIC must be converted to JPEG.
+- **Ideas.** There are 8 parametric templates. Anything beyond them the agent designs by hand, and the check applies all the same.
 - The engine draws 47 common parts (bricks, plates, tiles, slopes, round parts, SNOT 87087, Technic 3700/3701). Other parts from the inventory are kept but not used in models. New parts go into `src/lego.js` (see `reference/modeling.md`).
 - Palette of 34 colours with BrickLink/Rebrickable id mapping. Import reports the colours it skipped.
 - The check is geometric. Strength, clutch power and balance are not checked, so a model "passes the check" but isn't "tested by hand".

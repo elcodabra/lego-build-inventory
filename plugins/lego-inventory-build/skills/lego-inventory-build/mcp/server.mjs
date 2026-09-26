@@ -23,6 +23,8 @@ import { z } from 'zod';
 const require = createRequire(import.meta.url);
 const core = require('../lib/core.cjs');
 const film = require('../lib/film.cjs');
+const ideas = require('../lib/ideas.cjs');
+const photo = require('../lib/photo.cjs');
 
 // The server always uses the data dir (never ./inventory.json of whatever cwd it was started in).
 const DATA = core.DATA_DIR;
@@ -40,9 +42,13 @@ const GUIDE = [
   fs.readFileSync(path.join(core.ROOT, 'reference/modeling.md'), 'utf8'),
   fs.readFileSync(path.join(core.ROOT, 'reference/inventory.md'), 'utf8'),
 ].join('\n\n---\n\n');
+const PHOTO_GUIDE = fs.readFileSync(path.join(core.ROOT, 'reference/photos.md'), 'utf8');
 
 const INSTRUCTIONS = `LEGO builder that designs models ONLY from parts the user owns.
-Workflow: 1) inventory_show (import with inventory_import / inventory_add_set if empty).
+Photos of parts: one part per photo -> parts_from_photo (add=true). A pile/tray of many parts ->
+look at the photo yourself, list parts as CSV "part,color,qty" per lego_photo_guide, show the list
+to the user, then inventory_import. Then ideas_suggest -> offer 2-4 ideas -> idea_build -> model_preview.
+Workflow for a custom model: 1) inventory_show (import with inventory_import / inventory_add_set if empty).
 2) lego_guide once, to learn coordinates and rules. 3) Design a model as JSON steps using ONLY
 (part, colour) pairs from the drawable inventory; build bottom-up, bricks +3 plates, plates +1.
 4) model_check until geometry is clean and nothing is missing (use suggested alternatives).
@@ -181,6 +187,72 @@ function build() {
     inv.sources = [];
     core.saveInventory(inv);
     return text(`cleared ${n} lines`);
+  }));
+
+  // ---------------------------------------------------------------- photos and ideas
+
+  s.registerTool('lego_photo_guide', {
+    title: 'How to read parts from photos',
+    description: 'Use this before listing parts from a photo of a pile or tray: how to identify part numbers and colours by eye, and the CSV format for inventory_import.',
+    annotations: ro,
+  }, safe(async () => text(PHOTO_GUIDE)));
+
+  // ChatGPT passes uploaded files as { download_url, file_id } objects (openai/fileParams).
+  const FileObj = z.object({ download_url: z.string(), file_id: z.string(), mime_type: z.string().optional(), file_name: z.string().optional() });
+  s.registerTool('parts_from_photo', {
+    title: 'Recognise parts on photos',
+    description: 'Use this when the user sends photos of SINGLE LEGO parts (one part per photo, plain background). Identifies the part number (Brickognize) and colour, and with add=true adds confident results to the inventory. For a photo of many parts at once, read the photo yourself instead (see lego_photo_guide) and use inventory_import.',
+    inputSchema: {
+      files: z.array(FileObj).optional().describe('uploaded photos (ChatGPT)'),
+      images: z.array(z.string()).optional().describe('photos as URLs, file paths, data: URLs or base64'),
+      add: z.boolean().optional().describe('add confident results to the inventory'),
+      qty: z.number().int().min(1).optional().describe('how many of each photographed part the user has (default 1)'),
+    },
+    annotations: { openWorldHint: true },
+    _meta: { 'openai/fileParams': ['files'] },
+  }, safe(async ({ files, images, add, qty }) => {
+    const srcs = [...(files || []).map((f) => f.download_url), ...(images || [])];
+    if (!srcs.length) throw new Error('pass "files" or "images"');
+    const inv = core.loadInventory();
+    const out = [];
+    for (const src of srcs.slice(0, 20)) {
+      try {
+        const r = await photo.identify(src);
+        const added = !!(add && r.confident && !r.pile);
+        if (added) inv.items.push({ id: r.part.id, color: r.color, qty: qty || 1 });
+        out.push({ part: r.part && { id: r.part.id, name: r.part.name, score: r.part.score, drawable: r.part.drawable }, color: r.color, colorCandidates: r.colors.map((c) => c.color), otherParts: r.candidates.slice(1).map((c) => c.id), confident: r.confident, pile: r.pile, added, hint: r.hint });
+      } catch (e) {
+        out.push({ error: e.message });
+      }
+    }
+    if (add) { inv.sources.push(`photos ×${out.filter((x) => x.added).length}`); core.saveInventory(inv); }
+    return text({ results: out, next: 'Show the user what was recognised; ask about unconfident ones (fix with inventory_update). Then ideas_suggest.' });
+  }));
+
+  s.registerTool('ideas_suggest', {
+    title: 'What can I build?',
+    description: 'Use this when the user asks what they can build from their parts. Returns ideas that are buildable right now from the inventory (largest size that fits, colours picked from what they have) and ideas that are close, with the exact parts missing.',
+    annotations: ro,
+  }, safe(async () => {
+    const s = ideas.suggest(core.loadInventory());
+    if (!s.drawableParts) return text('Inventory is empty: ask for photos of the parts (parts_from_photo), a parts list (inventory_import) or set numbers (inventory_add_set).');
+    return text({ ...s, next: 'Offer the user 2-4 of these. For the chosen one call idea_build, then model_preview to show it. You can also design a custom model from the same parts.' });
+  }));
+
+  s.registerTool('idea_build', {
+    title: 'Build an idea',
+    description: 'Generate the step-by-step model for an idea from ideas_suggest, from the user\'s parts. Saves it under the idea name, so model_preview / model_render work with name=<idea>.',
+    inputSchema: {
+      idea: z.enum(Object.keys(ideas.GENERATORS)),
+      size: z.union([z.number().int(), z.string()]).optional().describe('sizeIndex or size label from ideas_suggest; default: largest that fits'),
+      allowMissing: z.boolean().optional().describe('build even if parts are missing (lists what to add)'),
+    },
+  }, safe(async ({ idea, size, allowMissing }) => {
+    const inv = core.loadInventory();
+    const r = ideas.build(idea, inv, size, { shopping: !!allowMissing });
+    const saved = core.saveModel({ ...r.model, name: idea });
+    const check = core.fullCheck(core.loadModel(saved.file), inv);
+    return text({ name: idea, title: r.model.title, size: r.size, parts: check.parts, steps: check.steps, notes: r.notes, missing: r.missing, ok: check.ok, next: `model_preview with name="${idea}"` });
   }));
 
   s.registerTool('model_check', {

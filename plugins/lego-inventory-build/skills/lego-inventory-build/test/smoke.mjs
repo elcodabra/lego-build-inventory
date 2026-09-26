@@ -76,6 +76,24 @@ async function exercise(client, label) {
   assert.equal(imgs.length, 2);
   fs.writeFileSync(path.join(TMP, `${label}-final.png`), Buffer.from(imgs[1].data, 'base64'));
   ok('model_preview returned 2 PNGs -> ' + path.join(TMP, `${label}-final.png`));
+  // ideas from a small "box" of parts
+  const BOX = ['white', 'red', 'green', 'lbg', 'brown'].flatMap((c) => ['3001,' + c + ',6', '3003,' + c + ',6', '3004,' + c + ',10', '3005,' + c + ',8', '3023,' + c + ',6', '3022,' + c + ',4'])
+    .concat(['3039,red,8', '3040,red,6', '3032,green,1']).join('\n');
+  await call('inventory_import', { data: 'part,color,qty\n' + BOX, replace: true });
+  const sug = J(await call('ideas_suggest'));
+  assert.ok(sug.buildable.length >= 3, 'at least 3 ideas: ' + sug.buildable.map((b) => b.idea));
+  ok('ideas_suggest: ' + sug.buildable.map((b) => `${b.idea}(${b.parts})`).join(', '));
+  const built = J(await call('idea_build', { idea: 'house' }));
+  assert.equal(built.ok, true, JSON.stringify(built));
+  const hp = await call('model_preview', { name: 'house' });
+  assert.equal(hp.content.filter((x) => x.type === 'image').length, 1);
+  ok(`idea_build house ${built.size}: ${built.parts} parts, checked ok, preview rendered`);
+  if (!process.env.OFFLINE) {
+    const fx = path.join(ROOT, 'test/fixtures');
+    const ph = J(await call('parts_from_photo', { images: [path.join(fx, '3001-red.png'), path.join(fx, '3039-black.png')], add: true, qty: 2 }));
+    assert.deepEqual(ph.results.map((r) => `${r.part.id} ${r.color}`), ['3001 red', '3039 black']);
+    ok('parts_from_photo (Brickognize): ' + ph.results.map((r) => `${r.part.id} ${r.color} added=${r.added}`).join(', '));
+  }
   if (RENDER) {
     const r = J(await call('model_render', { name: 'mushroom' }));
     assert.ok(fs.statSync(r.file).size > 10000);

@@ -97,4 +97,4 @@ async function render(model, outFile, opts) {
   return { file: outFile, frames: n, seconds: info.duration };
 }
 
-module.exports = { snap, render, close, frameTime };
+module.exports = { snap, render, close, frameTime, browserFor: browser };
