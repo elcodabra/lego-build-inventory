@@ -19,11 +19,17 @@
     "mosaic": "node tools/mosaic.cjs",
     "mcp": "node mcp/server.mjs",
     "mcp:http": "node mcp/server.mjs --http",
-    "test": "node test/smoke.mjs"
+    "test": "node test/smoke.mjs",
+    "deploy": "vercel deploy --prod"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.1",
-    "playwright": "^1.55.0",
+    "@napi-rs/canvas": "^1.0.9",
+    "@vercel/blob": "^2.8.0",
     "zod": "^3.25.0"
+  },
+  "optionalDependencies": {
+    "playwright": "^1.55.0",
+    "ffmpeg-static": "^5.3.0"
   }
 }

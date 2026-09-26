@@ -1,0 +1,22 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "",
+  "installCommand": "npm install --omit=optional --no-audit --no-fund && npm install --no-save ffmpeg-static@5 --no-audit --no-fund",
+  "outputDirectory": ".",
+  "functions": {
+    "api/mcp.mjs": {
+      "maxDuration": 300,
+      "includeFiles": "{src/**,lib/**,mcp/**,reference/**,assets/**}"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/mcp",
+      "destination": "/api/mcp"
+    },
+    {
+      "source": "/",
+      "destination": "/api/mcp"
+    }
+  ]
+}

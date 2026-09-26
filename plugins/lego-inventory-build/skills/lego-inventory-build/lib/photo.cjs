@@ -99,42 +99,35 @@ function rankColors(pixels) {
   return [...votes].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([key, n]) => ({ color: key, share: +(n / total).toFixed(2) }));
 }
 
-// Pixels inside the box, without the background: decode with Chromium (any format it can open),
-// drop pixels close to the border colour.
-async function boxPixels(img, box) {
-  let b;
-  try { b = await require('./film.cjs').browserFor(); } catch { return null; }
-  const page = await b.newPage();
-  try {
-    const url = `data:${img.mime};base64,${img.buf.toString('base64')}`;
-    return await page.evaluate(async ([u, bb]) => {
-      const im = new Image();
-      im.src = u;
-      await im.decode();
-      const W = 96;
-      const sx = bb ? bb.left : 0; const sy = bb ? bb.upper : 0;
-      const sw = bb ? bb.right - bb.left : im.naturalWidth; const sh = bb ? bb.lower - bb.upper : im.naturalHeight;
-      const H = Math.max(8, Math.round((W * sh) / sw));
-      const c = document.createElement('canvas'); c.width = W; c.height = H;
-      const x = c.getContext('2d'); x.drawImage(im, sx, sy, sw, sh, 0, 0, W, H);
-      const d = x.getImageData(0, 0, W, H).data;
-      const px = (i, j) => { const o = 4 * (j * W + i); return [d[o], d[o + 1], d[o + 2]]; };
-      const border = [];
-      for (let i = 0; i < W; i++) border.push(px(i, 0), px(i, H - 1));
-      for (let j = 0; j < H; j++) border.push(px(0, j), px(W - 1, j));
-      const bg = [0, 1, 2].map((k) => border.map((p) => p[k]).sort((a, b) => a - b)[border.length >> 1]);
-      const out = [];
-      for (let j = Math.round(H * 0.15); j < H * 0.85; j++) {
-        for (let i = Math.round(W * 0.15); i < W * 0.85; i++) {
-          const p = px(i, j);
-          if (Math.hypot(p[0] - bg[0], p[1] - bg[1], p[2] - bg[2]) > 40) out.push(p);
-        }
-      }
-      return out;
-    }, [url, box]);
-  } finally {
-    await page.close();
+// Pixels inside the box, without the background (pixels close to the border colour are dropped).
+// Decoded with @napi-rs/canvas (no browser needed).
+function foreground(d, W, H) {
+  const px = (i, j) => { const o = 4 * (j * W + i); return [d[o], d[o + 1], d[o + 2]]; };
+  const border = [];
+  for (let i = 0; i < W; i++) border.push(px(i, 0), px(i, H - 1));
+  for (let j = 0; j < H; j++) border.push(px(0, j), px(W - 1, j));
+  const bg = [0, 1, 2].map((k) => border.map((p) => p[k]).sort((a, b) => a - b)[border.length >> 1]);
+  const out = [];
+  for (let j = Math.round(H * 0.15); j < H * 0.85; j++) {
+    for (let i = Math.round(W * 0.15); i < W * 0.85; i++) {
+      const p = px(i, j);
+      if (Math.hypot(p[0] - bg[0], p[1] - bg[1], p[2] - bg[2]) > 40) out.push(p);
+    }
   }
+  return out;
+}
+
+async function boxPixels(img, box) {
+  const { loadImage, createCanvas } = require('@napi-rs/canvas');
+  const im = await loadImage(img.buf);
+  const W = 96;
+  const sx = box ? box.left : 0; const sy = box ? box.upper : 0;
+  const sw = box ? box.right - box.left : im.width; const sh = box ? box.lower - box.upper : im.height;
+  const H = Math.max(8, Math.round((W * sh) / sw));
+  const c = createCanvas(W, H);
+  const x = c.getContext('2d');
+  x.drawImage(im, sx, sy, sw, sh, 0, 0, W, H);
+  return foreground(x.getImageData(0, 0, W, H).data, W, H);
 }
 
 // Identify the most prominent part on a photo.

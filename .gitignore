@@ -3,3 +3,5 @@ exports/
 dist/
 inventory.json
 .DS_Store
+.vercel
+.env*.local

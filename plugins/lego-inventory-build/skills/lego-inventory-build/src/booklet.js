@@ -15,7 +15,7 @@
   'use strict';
 
   const LEGO = root.LEGO;
-  const FONT = '"Helvetica Neue", Helvetica, Arial, sans-serif';
+  const FONT = 'Inter, "Helvetica Neue", Helvetica, Arial, sans-serif';
   const INK = '#1F2328';
   const PALE = 0.45;
 

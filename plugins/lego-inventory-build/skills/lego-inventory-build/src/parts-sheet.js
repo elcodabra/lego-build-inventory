@@ -9,7 +9,7 @@
   const LEGO = root.LEGO;
   const W = 1920;
   const H = 1500;
-  const FONT = '"Helvetica Neue", Helvetica, Arial, sans-serif';
+  const FONT = 'Inter, "Helvetica Neue", Helvetica, Arial, sans-serif';
   const INK = '#1F2328';
   const COLS = 8;
   const TINTS = ['red', 'blue', 'yellow', 'green', 'orange', 'azure', 'lime', 'white', 'lbg', 'dbg', 'tan', 'blo', 'darkOrange', 'black'];

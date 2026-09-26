@@ -1,0 +1,16 @@
+import http from 'node:http';
+process.env.VERCEL='1'; process.env.LEGO_MCP_TOKEN='k123';
+const { default: handler } = await import(process.cwd()+'/api/mcp.mjs');
+const srv = http.createServer((req,res)=>{ res.status=(c)=>{res.statusCode=c;return res}; res.json=(o)=>{res.setHeader('content-type','application/json');res.end(JSON.stringify(o))}; handler(req,res); }).listen(18777);
+const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+const c = new Client({name:'t',version:'0'});
+await c.connect(new StreamableHTTPClientTransport(new URL('http://localhost:18777/mcp?key=k123')));
+console.log('tools', (await c.listTools()).tools.length);
+const J=(r)=>JSON.parse(r.content[0].text);
+console.log(J(await c.callTool({name:'inventory_import',arguments:{data:'part,color,qty\n3001,red,10\n3003,white,8\n3004,white,10\n3005,red,6\n3039,red,8\n3032,green,1\n3022,white,4\n3023,red,6',replace:true}})));
+const s=J(await c.callTool({name:'ideas_suggest',arguments:{}})); console.log('ideas', s.buildable.map(b=>b.idea+':'+b.parts).join(' '));
+console.log(J(await c.callTool({name:'idea_build',arguments:{idea:s.buildable[0].idea}})).ok);
+const p=await c.callTool({name:'model_preview',arguments:{name:s.buildable[0].idea}}); console.log('preview', p.isError?p.content[0].text:p.content.map(x=>x.type+(x.data?':'+x.data.length:'')).join(' '));
+const ph=J(await c.callTool({name:'parts_from_photo',arguments:{images:['https://img.bricklink.com/ItemImage/PN/5/3001.png']}})); console.log('photo', JSON.stringify(ph.results[0]).slice(0,160));
+await c.close(); srv.close();

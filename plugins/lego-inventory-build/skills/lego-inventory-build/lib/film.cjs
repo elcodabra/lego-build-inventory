@@ -54,7 +54,7 @@ const frameTime = (model, t) => {
 };
 
 // Frames as PNG buffers. times: numbers in seconds, negative from the end, or 'final'.
-async function snap(model, times, format) {
+async function snapChromium(model, times, format) {
   const { p } = await page(model, format);
   try {
     const out = [];
@@ -69,7 +69,7 @@ async function snap(model, times, format) {
   }
 }
 
-async function render(model, outFile, opts) {
+async function renderChromium(model, outFile, opts) {
   const o = opts || {};
   const fps = o.fps || 30;
   const { p, info } = await page(model, o.format);
@@ -95,6 +95,30 @@ async function render(model, outFile, opts) {
     await p.close();
   }
   return { file: outFile, frames: n, seconds: info.duration };
+}
+
+// Backend: Chromium (Playwright) when it is there, else Skia (@napi-rs/canvas, no browser, works on
+// Vercel). LEGO_RENDERER=node|chromium forces one. The parts sheet needs Chromium.
+function useNode(model) {
+  const want = process.env.LEGO_RENDERER;
+  if (want === 'chromium' || model === 'parts') return false;
+  if (want === 'node') return true;
+  try { require.resolve('playwright'); } catch { return true; }
+  return false;
+}
+async function snap(model, times, format) {
+  if (useNode(model)) return require('./nodefilm.cjs').snap(model, times, format);
+  try { return await snapChromium(model, times, format); } catch (e) {
+    if (!/Chromium|playwright/i.test(e.message) || !require('./nodefilm.cjs').available()) throw e;
+    return require('./nodefilm.cjs').snap(model, times, format);
+  }
+}
+async function render(model, outFile, opts) {
+  if (useNode(model)) return require('./nodefilm.cjs').render(model, outFile, opts);
+  try { return await renderChromium(model, outFile, opts); } catch (e) {
+    if (!/Chromium|playwright/i.test(e.message) || !require('./nodefilm.cjs').available()) throw e;
+    return require('./nodefilm.cjs').render(model, outFile, opts);
+  }
 }
 
 module.exports = { snap, render, close, frameTime, browserFor: browser };

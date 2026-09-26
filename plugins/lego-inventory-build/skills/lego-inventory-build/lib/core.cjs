@@ -16,7 +16,8 @@ const EPS = 1e-6;
 
 // User data (inventory, saved models, renders) lives outside the skill folder so it survives
 // plugin updates and is shared by the CLI tools and the MCP server: $LEGO_DATA_DIR or ~/.lego-build.
-const DATA_DIR = path.resolve(process.env.LEGO_DATA_DIR || path.join(require('os').homedir(), '.lego-build'));
+// Read on every call, so a host (Vercel) can switch it per request.
+const dataDir = () => path.resolve(process.env.LEGO_DATA_DIR || path.join(require('os').homedir(), '.lego-build'));
 
 // ------------------------------------------------------------------ colours and parts
 
@@ -81,7 +82,7 @@ function catalog() {
 // A model is { title, theta?, phi?, steps: [[{ id, color, at: [x, y, z], rot?, up?, from? }, ...], ...] }.
 // It can be a .js file that registers window.MODELS.<name> (the upstream format) or a .json file.
 function modelDirs() {
-  return [path.join(process.cwd(), 'models'), path.join(DATA_DIR, 'models'), path.join(ROOT, 'src/models')];
+  return [path.join(process.cwd(), 'models'), path.join(dataDir(), 'models'), path.join(ROOT, 'src/models')];
 }
 
 function resolveModelFile(ref) {
@@ -227,7 +228,7 @@ function defaultInventoryPath() {
   if (process.env.LEGO_INVENTORY) return path.resolve(process.env.LEGO_INVENTORY);
   const local = path.resolve('inventory.json');
   if (fs.existsSync(local)) return local;
-  return path.join(DATA_DIR, 'inventory.json');
+  return path.join(dataDir(), 'inventory.json');
 }
 
 function loadInventory(file) {
@@ -418,7 +419,7 @@ function formatCheck(res) {
 
 function saveModel(model, dir) {
   const name = String(model.name || model.title || 'model').toLowerCase().replace(/[^a-z0-9а-яё_-]+/gi, '-').replace(/^-|-$/g, '') || 'model';
-  const d = dir || path.join(DATA_DIR, 'models');
+  const d = dir || path.join(dataDir(), 'models');
   fs.mkdirSync(d, { recursive: true });
   const file = path.join(d, name + '.json');
   const clean = { title: model.title, theta: model.theta, phi: model.phi, steps: model.steps };
@@ -430,7 +431,7 @@ function saveModel(model, dir) {
 const duration = (model) => 0.55 + (model.step || 0.85) * model.steps.length + 0.45 + 3.6 + 1.5;
 
 module.exports = {
-  ROOT, DATA_DIR, LEGO, colorKey, partId, drawable, catalog,
+  ROOT, dataDir, get DATA_DIR() { return dataDir(); }, LEGO, colorKey, partId, drawable, catalog,
   loadModel, listModels, validateModel, saveModel, bom, checkGeometry, duration,
   defaultInventoryPath, loadInventory, saveInventory, parseInventory, fetchSet, mergeItems,
   summarizeInventory, fitInventory, fullCheck, formatCheck,
