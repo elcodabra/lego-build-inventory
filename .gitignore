@@ -5,3 +5,4 @@ inventory.json
 .DS_Store
 .vercel
 .env*.local
+.chatgpt-connector-url.txt
