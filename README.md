@@ -96,3 +96,14 @@ npm test                                         # e2e: CLI + MCP stdio + MCP HT
 - Palette of 34 colours with BrickLink/Rebrickable id mapping. Import reports the colours it skipped.
 - The check is geometric. Strength, clutch power and balance are not checked, so a model "passes the check" but isn't "tested by hand".
 - LEGO® is a trademark of the LEGO Group. This project is not affiliated with it.
+
+## Checking a deployed server
+
+```bash
+cd plugins/lego-inventory-build/skills/lego-inventory-build
+node test/remote.mjs "https://<app>/mcp?key=<key>" --render              # all tools, live
+node test/make-test-photos.cjs ~/Desktop/lego-test                        # test photos + answer CSV for the pile
+node test/chatgpt-sim.mjs "https://<app>/mcp?key=<key>" <photo URL>...    # photos in ChatGPT's format (files: download_url)
+node test/chatgpt-flow.mjs "https://<app>/mcp?key=<key>" pile.csv --render # pile → ideas → build → preview → video
+vercel logs --follow --json | grep '"ev"'                                  # which tools ChatGPT calls, time taken, errors
+```
