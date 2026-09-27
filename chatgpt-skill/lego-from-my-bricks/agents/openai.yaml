@@ -1,0 +1,10 @@
+interface:
+  display_name: "LEGO from my bricks"
+  short_description: "What to build from your own LEGO parts, with step-by-step pictures"
+  icon_small: "./assets/icon.png"
+  icon_large: "./assets/icon.png"
+  brand_color: "#FFD21A"
+  default_prompt: "Use LEGO from my bricks: here are my parts, what can I build?"
+
+policy:
+  allow_implicit_invocation: true
