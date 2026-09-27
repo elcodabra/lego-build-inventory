@@ -7,7 +7,20 @@ description: Suggests what to build from the user's own LEGO bricks and gives st
 
 The user wants to build something from the LEGO parts they actually have. The result is a short answer with **pictures shown inline in the chat**: the finished model first, step pictures only when asked. Explicit user instructions override anything here.
 
-**Show images, don't attach them.** Always display generated PNGs inline (as images in the reply). Never answer with a list of file attachments or links to `.svg` files, and never just link a video: if you cannot display something inline, say so in one line.
+**Show images, don't attach them.** The user must see the picture itself in the chat, not a file chip to click. Never answer with a list of file attachments or links to `.svg` files, and never just link a video. See "Showing a picture" below.
+
+## Showing a picture
+
+Try in this order, stop at the first that works:
+
+1. **Python tool, inline** (best): run in the Python tool
+   ```python
+   exec(open('<S>/show.py').read())
+   show('/mnt/data/lego/out/rocket-model.png')
+   ```
+   `show()` draws the PNG with matplotlib, which ChatGPT displays right in the answer. For the step sheet use `show(path, width=9)`. Then write the short text answer; do not attach the same file again.
+2. **Markdown image** in the reply: `![Ракета](sandbox:/mnt/data/lego/out/rocket-model.png)`.
+3. Only if neither works: attach the PNG as a file.
 
 ## Two ways to run
 
@@ -46,8 +59,8 @@ Work in a folder, e.g. `/mnt/data/lego`. `S` = path to this skill's `scripts/`.
    node $S/tools/ideas.cjs build <idea> [size] --inv inventory.json --out models/<idea>.json
    node $S/tools/draw.cjs models/<idea>.json --out out
    ```
-   Display `out/<idea>-model.png` inline, with a compact parts list (`node $S/tools/inventory.cjs bom models/<idea>.json`). One or two sentences of text. `draw.cjs` makes the PNG itself (pure Node), no converter is needed.
-4. **Steps on request.** `node $S/tools/draw.cjs models/<idea>.json --sheet --out out` → display the single picture `out/<idea>-steps.png` (all steps in a numbered grid; new parts of each step are outlined in yellow). Under it, one short line per step ("2 — 4 кирпича 1×2, 2 плитки"). Use `--steps` (separate `<idea>-step1..N.png`) only if the user wants them one by one.
+   Show `out/<idea>-model.png` (see "Showing a picture"), with a compact parts list (`node $S/tools/inventory.cjs bom models/<idea>.json`). One or two sentences of text. `draw.cjs` makes the PNG itself (pure Node), no converter is needed.
+4. **Steps on request.** `node $S/tools/draw.cjs models/<idea>.json --sheet --out out` → show the single picture `out/<idea>-steps.png` (all steps in a numbered grid; new parts of each step are outlined in yellow). Under it, one short line per step ("2 — 4 кирпича 1×2, 2 плитки"). Use `--steps` (separate `<idea>-step1..N.png`) only if the user wants them one by one.
 5. **Video.** Not available without the app: say that the build video comes with the "LEGO из моих деталей" app, and offer the step pictures instead.
 6. **Own design.** Follow `references/modeling.md`; check with `node $S/tools/check-model.cjs models/<name>.json --inv inventory.json` until it says `no overlaps, everything is held, all parts are in the inventory`.
 
@@ -64,5 +77,6 @@ Work in a folder, e.g. `/mnt/data/lego`. `S` = path to this skill's `scripts/`.
 - `scripts/tools/inventory.cjs` — import/show/fit/bom of the parts list.
 - `scripts/tools/ideas.cjs` — ideas that fit the inventory; `build` writes a checked model JSON.
 - `scripts/tools/draw.cjs` — model picture, step sheet, single step pictures (PNG, pure Node).
+- `scripts/show.py` — `show(path)` displays a PNG inline from the Python tool.
 - `scripts/tools/check-model.cjs` — overlaps, floating parts, parts missing from the inventory.
 - `references/photos.md` — how to read parts from photos. `references/modeling.md` — model format and building rules. `references/parts.md` — part numbers and colour keys.
