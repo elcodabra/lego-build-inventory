@@ -4,6 +4,7 @@
 // --steps: <name>-step1.png ...     one per step (new parts outlined in yellow, earlier ones pale,
 //                                   same camera on every picture)
 // --sheet: <name>-steps.png         all steps in one picture (grid), easiest to show in a chat
+// --all:   <name>-build.png         the finished model (left, large) and all steps (right) in ONE picture
 // Prints the PNG paths, one per line.
 'use strict';
 const fs = require('fs');
@@ -61,6 +62,24 @@ function sheet(model, cell) {
   return ctx.toSVG('#ffffff');
 }
 
+// Finished model on the left (S x S), the step grid on the right filling the same height.
+function combined(model, S) {
+  const n = model.steps.length;
+  const rows = n <= 2 ? 1 : n <= 6 ? 2 : 3;
+  const cols = Math.ceil(n / rows);
+  const cell = Math.round(S / rows);
+  const W = S + cols * cell;
+  const ctx = new SvgContext(W, S);
+  drawModel(ctx, model, S, 0, 0);
+  for (let k = 0; k < n; k++) drawModel(ctx, model, cell, S + (k % cols) * cell, Math.floor(k / cols) * cell, k + 1);
+  ctx.strokeStyle = '#e5e7eb';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(S, 0); ctx.lineTo(S, S); ctx.stroke();
+  for (let c = 1; c < cols; c++) { ctx.beginPath(); ctx.moveTo(S + c * cell, 0); ctx.lineTo(S + c * cell, S); ctx.stroke(); }
+  for (let r = 1; r < rows; r++) { ctx.beginPath(); ctx.moveTo(S, r * cell); ctx.lineTo(W, r * cell); ctx.stroke(); }
+  return ctx.toSVG('#ffffff');
+}
+
 try {
   if (!ref) throw new Error('usage: node tools/draw.cjs <model.json|name> [--steps] [--sheet] [--out dir]');
   const m = core.loadModel(ref);
@@ -73,6 +92,7 @@ try {
     fs.writeFileSync(f, svgToPng(svg));
     out.push(f);
   };
+  if (args.includes('--all')) { write(`${m.name}-build`, combined(m, S)); console.log(out.join('\n')); process.exit(0); }
   write(`${m.name}-model`, single(m, S));
   if (args.includes('--sheet')) write(`${m.name}-steps`, sheet(m, Math.round(S * 0.6)));
   if (args.includes('--steps')) m.steps.forEach((_, k) => write(`${m.name}-step${k + 1}`, single(m, S, k + 1)));
