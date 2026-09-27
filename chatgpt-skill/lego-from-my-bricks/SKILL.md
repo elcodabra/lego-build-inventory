@@ -26,7 +26,9 @@ Check which tools are available first; prefer A.
    - Show the recognised parts as a compact table and ask only about lines marked unsure. Fix with `inventory_update`.
 2. **Ideas.** `ideas_suggest`. Offer 2–4 buildable ideas in one short list (name, size, part count). Mention at most one "almost" idea with what is missing.
 3. **Build.** After the user picks: `idea_build` → `show_build` (mode `picture`). The card shows the model and its parts: answer in one sentence, do not retell parts or steps.
-4. **On request only:** `show_build` mode `steps` (step pictures) or mode `video`. Always use `show_build` for these (it plays the video inside the card); do not use `model_render`/`model_preview`, which only return links.
+4. **On request only:** `show_build` mode `steps` (step pictures) or mode `video`. Always use `show_build` for these (it plays the video inside the card); do not use `model_render`/`model_preview`.
+
+Images returned to you by a tool are seen by you, not by the user. If the card is not visible in this chat (e.g. you are running as an agent), put the markdown from the tool answer into your reply so the user sees the pictures; never write "shown above" unless it really is.
 5. **Own design** (the user wants something not in the ideas): read `lego_guide`, design a model JSON from the inventory, `model_check` until ok, `model_save`, `show_build`.
 
 ## Script flow (no app)

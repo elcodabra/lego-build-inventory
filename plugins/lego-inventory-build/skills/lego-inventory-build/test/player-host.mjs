@@ -14,8 +14,9 @@ const res = (await c.readResource({ uri })).contents[0];
 console.log('resource', uri, res.mimeType, 'csp', JSON.stringify(res._meta.ui.csp));
 const t = Date.now();
 const mode = process.argv[5] || 'picture';
-const r = await c.callTool({ name: 'show_build', arguments: { name, mode } });
-console.log('show_build', ((Date.now() - t) / 1000).toFixed(1) + 's', JSON.stringify(r.structuredContent).slice(0, 200));
+const tn = process.env.TOOL || 'show_build'; // model_render / model_preview return the same card
+const r = await c.callTool({ name: tn, arguments: tn === 'show_build' ? { name, mode } : { name } });
+console.log(tn, ((Date.now() - t) / 1000).toFixed(1) + 's', JSON.stringify(r.structuredContent).slice(0, 200));
 const csp = `default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src ${res._meta.ui.csp.resourceDomains.join(' ')} data:; media-src ${res._meta.ui.csp.resourceDomains.join(' ')} data:; connect-src 'none'`;
 const b = await chromium.launch();
 const p = await b.newPage({ viewport: { width: 760, height: 700 } });

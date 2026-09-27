@@ -114,13 +114,16 @@ export function buildServer(opts) {
     title: 'Import parts list',
     description: 'Add parts from text. Formats: CSV "part,color,qty" (colour as key, name or BrickLink id), Rebrickable CSV export ("Part,Color,Quantity"), BrickLink XML, or JSON [{id,color,qty}].',
     inputSchema: {
-      data: z.string().max(2_000_000).describe('file contents'),
+      data: z.string().max(2_000_000).optional().describe('file contents'),
+      text: z.string().max(2_000_000).optional().describe('same as data'),
       format: z.enum(['csv', 'rebrickable', 'bricklink', 'json']).optional().describe('auto-detected when omitted'),
       replace: z.boolean().optional().describe('replace the inventory instead of adding'),
       source: z.string().optional().describe('label, e.g. "box in the attic"'),
     },
     annotations: { destructiveHint: false, openWorldHint: false },
-  }, safe(async ({ data, format, replace, source }) => {
+  }, safe(async ({ data, text: txt, format, replace, source }) => {
+    data = data || txt;
+    if (!data) throw new Error('pass the parts list in "data"');
     const inv = core.loadInventory();
     const r = core.parseInventory(data, format);
     if (replace) { inv.items = []; inv.sources = []; }
@@ -342,30 +345,6 @@ export function buildServer(opts) {
     return text({ title: m.title, theta: m.theta, phi: m.phi, steps: m.steps });
   }));
 
-  s.registerTool('model_preview', {
-    title: 'Preview frames',
-    description: 'Render PNG frames of the build film so you can look at the model. Default is the final frame. Times in seconds, negative from the end, or "final".',
-    inputSchema: {
-      ...ModelRef,
-      times: z.array(z.union([z.number(), z.literal('final')])).max(4).optional(),
-      format: z.enum(['vertical', 'horizontal']).optional(),
-    },
-    annotations: ro,
-  }, safe(async (a) => {
-    const m = pickModel(a);
-    const shots = await film.snap(m, a.times && a.times.length ? a.times : ['final'], a.format);
-    const base = (m.name || 'preview').replace(/[^a-z0-9_-]+/gi, '-');
-    const links = shots.map((s) => {
-      const f = path.join(exportsDir(), `${base}-${s.t.toFixed(2)}.png`);
-      fs.writeFileSync(f, s.png);
-      return f;
-    });
-    const urls = [];
-    // local server: file paths are the user's own; multi-user host: only public URLs
-    for (const f of links) urls.push((await fileUrl(f)) || (core.safeMode() && process.env.VERCEL ? '' : f));
-    return { content: [...shots.map((s) => ({ type: 'image', data: s.png.toString('base64'), mimeType: 'image/png' })), { type: 'text', text: `frames at ${shots.map((s) => s.t.toFixed(2)).join(', ')} s of ${core.duration(m).toFixed(2)} s\n${urls.join('\n')}` }] };
-  }));
-
   // ---------------------------------------------------------------- inline player (MCP Apps)
 
   const PLAYER_URI = 'ui://lego/card-v4.html';
@@ -385,30 +364,17 @@ export function buildServer(opts) {
   }));
 
   const colorInfo = (k) => core.LEGO.COLORS[k] || { hex: '#999', ru: k };
-  s.registerTool('show_build', {
-    title: 'Show the build in the chat',
-    description: 'Use this to SHOW a model inside the chat as a card (do not describe it in text). ' +
-      'mode "picture" (default, fast): the finished model and its parts, call it right after idea_build. ' +
-      'mode "steps": step-by-step pictures, when the user asks how to build it. ' +
-      'mode "video": the build video playing inside the card (~25 s to render), use this whenever the user asks for a video ' +
-      '(prefer it over model_render, which only returns a download link).',
-    inputSchema: {
-      name: z.string().describe('saved model name, e.g. the idea name after idea_build'),
-      mode: z.enum(['picture', 'steps', 'video']).optional(),
-      format: z.enum(['vertical', 'horizontal']).optional(),
-    },
-    annotations: { readOnlyHint: true, openWorldHint: false },
-    _meta: {
-      ui: { resourceUri: PLAYER_URI },
-      'openai/outputTemplate': PLAYER_URI,
-      'openai/widgetAccessible': true,
-      'openai/toolInvocation/invoking': 'Рисую…',
-      'openai/toolInvocation/invoked': 'Готово',
-    },
-  }, safe(async ({ name, mode, format }) => {
-    const m = core.loadModel(name);
-    const md = mode || 'picture';
-    const base = String(m.name || name).replace(/[^a-z0-9_-]+/gi, '-') + (format === 'horizontal' ? '-16x9' : '');
+  // Every tool that produces something visual answers with the same card, so the user sees the
+  // model whichever of them the chat model happens to pick.
+  const cardMeta = {
+    ui: { resourceUri: PLAYER_URI },
+    'openai/outputTemplate': PLAYER_URI,
+    'openai/widgetAccessible': true,
+    'openai/toolInvocation/invoking': 'Рисую…',
+    'openai/toolInvocation/invoked': 'Готово',
+  };
+  async function card(m, md, format, fallbackName) {
+    const base = String(m.name || fallbackName || 'model').replace(/[^a-z0-9_-]+/gi, '-') + (format === 'horizontal' ? '-16x9' : '');
     // model-only square pictures: the finished model, and for steps one picture per step with
     // earlier parts pale and the new ones outlined (same camera, so they line up when paging)
     const nf = require('../lib/nodefilm.cjs');
@@ -427,27 +393,92 @@ export function buildServer(opts) {
     }
     const bom = core.bom(m).map((b) => ({ id: b.id, name: b.name, color: b.color, colorName: colorInfo(b.color).ru, hex: colorInfo(b.color).hex, qty: b.qty }));
     const data = {
-      name: m.name || name, title: m.title, parts: m.steps.flat().length, steps: m.steps.length, format: format || 'vertical', mode: md,
+      name: m.name || fallbackName || '', title: m.title, parts: m.steps.flat().length, steps: m.steps.length, format: format || 'vertical', mode: md,
       posterUrl: urls[0], stepUrls: urls.slice(1), videoUrl, bom,
     };
-    const plain = md === 'video' ? `видео ${videoUrl}` : md === 'steps' ? `шаги ${urls.slice(1).join(' ')}` : `картинка ${urls[0]}`;
+    const next = md === 'picture' ? '«шаги картинками» или «видео»' : md === 'steps' ? '«видео»' : 'собрать что-то ещё';
+    // Markdown fallback for hosts that do not render the card: images inline, video as a link.
+    const md2 = [
+      urls[0] && md !== 'steps' ? `![${m.title}](${urls[0]})` : '',
+      md === 'steps' ? urls.slice(1).map((u, i) => (u ? `![Шаг ${i + 1}](${u})` : '')).join('\n') : '',
+      videoUrl ? `[▶ Видео сборки](${videoUrl})` : '',
+    ].filter(Boolean).join('\n');
     return {
-      structuredContent: data,
-      content: [{ type: 'text', text: `Карточка «${m.title}» (${data.parts} деталей, ${data.steps} шагов) уже показана пользователю. Не пересказывай шаги и детали, ответь одной фразой и предложи ${md === 'picture' ? '«шаги картинками» или «видео»' : md === 'steps' ? '«видео»' : 'собрать что-то ещё'}. (Если карточка не отобразилась, дай ссылку: ${plain})` }],
+      data,
+      shots,
+      result: {
+        structuredContent: data,
+        content: [{ type: 'text', text:
+          `Карточка «${m.title}» (${data.parts} деталей, ${data.steps} шагов) показана пользователю. Не пересказывай шаги и детали, ответь одной фразой и предложи ${next}.\n` +
+          `Если ты работаешь как агент или в чате с навыками (карточки там не видно), пользователь картинку НЕ видит: ` +
+          `вставь в ответ этот markdown как есть, а если картинки так не показываются, скачай их по ссылкам и приложи как изображения (PNG), не SVG:\n${md2}` }],
+      },
+    };
+  }
+
+  s.registerTool('model_preview', {
+    title: 'Preview frames',
+    description: 'Render PNG frames of the build film so you can look at the model yourself. Default is the final frame. Times in seconds, negative from the end, or "final". ' +
+      'To show a saved model to the user, use show_build.',
+    inputSchema: {
+      ...ModelRef,
+      times: z.array(z.union([z.number(), z.literal('final')])).max(4).optional(),
+      format: z.enum(['vertical', 'horizontal']).optional(),
+    },
+    annotations: ro,
+    _meta: cardMeta,
+  }, safe(async (a) => {
+    const m = pickModel(a);
+    const shots = await film.snap(m, a.times && a.times.length ? a.times : ['final'], a.format);
+    const base = (m.name || 'preview').replace(/[^a-z0-9_-]+/gi, '-');
+    const links = shots.map((s) => {
+      const f = path.join(exportsDir(), `${base}-${s.t.toFixed(2)}.png`);
+      fs.writeFileSync(f, s.png);
+      return f;
+    });
+    const urls = [];
+    // local server: file paths are the user's own; multi-user host: only public URLs
+    for (const f of links) urls.push((await fileUrl(f)) || (core.safeMode() && process.env.VERCEL ? '' : f));
+    const c = await card(m, 'picture', a.format, a.name);
+    return {
+      structuredContent: c.data,
+      content: [
+        ...shots.map((s) => ({ type: 'image', data: s.png.toString('base64'), mimeType: 'image/png' })),
+        { type: 'text', text: `frames at ${shots.map((s) => s.t.toFixed(2)).join(', ')} s of ${core.duration(m).toFixed(2)} s\n${urls.join('\n')}` },
+        ...c.result.content,
+      ],
     };
   }));
+
+  s.registerTool('show_build', {
+    title: 'Show the build in the chat',
+    description: 'Use this to SHOW a model inside the chat as a card (do not describe it in text). ' +
+      'mode "picture" (default, fast): the finished model and its parts, call it right after idea_build. ' +
+      'mode "steps": step-by-step pictures, when the user asks how to build it. ' +
+      'mode "video": the build video playing inside the card (~25 s to render), use this whenever the user asks for a video ' +
+      '(prefer it over model_render, which only returns a download link).',
+    inputSchema: {
+      name: z.string().describe('saved model name, e.g. the idea name after idea_build'),
+      mode: z.enum(['picture', 'steps', 'video']).optional(),
+      format: z.enum(['vertical', 'horizontal']).optional(),
+    },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+    _meta: cardMeta,
+  }, safe(async ({ name, mode, format }) => (await card(core.loadModel(name), mode || 'picture', format, name)).result));
 
   s.registerTool('model_render', {
     title: 'Render build video',
     description: 'Render the build film to an mp4 FILE for download (takes ~10-60 s). To show a video to the user in chat use show_build mode "video" instead; ' +
       'use this only when the user explicitly wants the file or a specific format.',
     inputSchema: { ...ModelRef, format: z.enum(['vertical', 'horizontal']).optional() },
+    _meta: cardMeta,
   }, safe(async (a) => {
     const m = pickModel(a);
-    const base = (m.name || 'model').replace(/[^a-z0-9_-]+/gi, '-') + (a.format === 'horizontal' ? '-16x9' : '');
-    const r = await film.render(m, path.join(exportsDir(), base + '.mp4'), { format: a.format });
-    const u = await fileUrl(r.file);
-    return text({ url: u, ...(u ? {} : { file: r.file }), seconds: +r.seconds.toFixed(2), frames: r.frames });
+    const c = await card(m, 'video', a.format, a.name);
+    const base = String(m.name || a.name || 'model').replace(/[^a-z0-9_-]+/gi, '-') + (a.format === 'horizontal' ? '-16x9' : '');
+    const file = path.join(exportsDir(), base + '.mp4');
+    const info = { url: c.data.videoUrl, ...(c.data.videoUrl ? {} : { file }) };
+    return { structuredContent: c.data, content: [{ type: 'text', text: JSON.stringify(info) }, ...c.result.content] };
   }));
 
   return s;
