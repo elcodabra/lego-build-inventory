@@ -390,7 +390,8 @@ export function buildServer(opts) {
     description: 'Use this to SHOW a model inside the chat as a card (do not describe it in text). ' +
       'mode "picture" (default, fast): the finished model and its parts, call it right after idea_build. ' +
       'mode "steps": step-by-step pictures, when the user asks how to build it. ' +
-      'mode "video": the build video (~25 s to render), only when the user asks for a video.',
+      'mode "video": the build video playing inside the card (~25 s to render), use this whenever the user asks for a video ' +
+      '(prefer it over model_render, which only returns a download link).',
     inputSchema: {
       name: z.string().describe('saved model name, e.g. the idea name after idea_build'),
       mode: z.enum(['picture', 'steps', 'video']).optional(),
@@ -438,7 +439,8 @@ export function buildServer(opts) {
 
   s.registerTool('model_render', {
     title: 'Render build video',
-    description: 'Render the full step-by-step build film to mp4 (takes ~10-60 s). Returns the file path and, over HTTP, a download link.',
+    description: 'Render the build film to an mp4 FILE for download (takes ~10-60 s). To show a video to the user in chat use show_build mode "video" instead; ' +
+      'use this only when the user explicitly wants the file or a specific format.',
     inputSchema: { ...ModelRef, format: z.enum(['vertical', 'horizontal']).optional() },
   }, safe(async (a) => {
     const m = pickModel(a);
