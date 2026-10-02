@@ -1,5 +1,7 @@
 # LEGO from my bricks
 
+[![M8ven Score](https://m8ven.ai/badge/mcp/elcodabra-lego-build-inventory-nwdiqy?v=c6a6ea638e77bd9534bf8ded1479b9e0)](https://m8ven.ai/mcp/elcodabra-lego-build-inventory-nwdiqy?s=readme)
+
 A Skill plus an MCP server for Claude and ChatGPT. It designs LEGO models **only from the parts you actually own**, checks that the model holds together and that you have enough of every part, and renders step-by-step instructions in the style of an official booklet (PNG, mp4 1080×1920 / 1920×1080).
 
 **Main scenario: photograph your parts → get ideas for what you can build → get the instructions.**
