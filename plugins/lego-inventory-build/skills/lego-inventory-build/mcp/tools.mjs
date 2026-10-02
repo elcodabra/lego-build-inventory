@@ -86,7 +86,9 @@ export { film };
 export function buildServer(opts) {
   const fileUrl = (opts && opts.publish) || (() => null);
   const s = new McpServer({ name: 'lego-inventory-build', version: '0.1.0' }, { instructions: INSTRUCTIONS });
-  const ro = { readOnlyHint: true, openWorldHint: false };
+  // All four hints on every tool (OpenAI's app directory requires explicit booleans).
+  const hints = (readOnly, destructive, idempotent, openWorld) => ({ readOnlyHint: readOnly, destructiveHint: destructive, idempotentHint: idempotent, openWorldHint: openWorld });
+  const ro = hints(true, false, true, false);
 
   s.registerTool('lego_guide', {
     title: 'How to design a model',
@@ -120,7 +122,7 @@ export function buildServer(opts) {
       replace: z.boolean().optional().describe('replace the inventory instead of adding'),
       source: z.string().optional().describe('label, e.g. "box in the attic"'),
     },
-    annotations: { destructiveHint: false, openWorldHint: false },
+    annotations: hints(false, true, false, false), // replace=true wipes the inventory
   }, safe(async ({ data, text: txt, format, replace, source }) => {
     data = data || txt;
     if (!data) throw new Error('pass the parts list in "data"');
@@ -137,7 +139,7 @@ export function buildServer(opts) {
     title: 'Add a LEGO set',
     description: 'Add all parts of official sets by number (e.g. "31058" or "31058-1") via Rebrickable. Needs REBRICKABLE_API_KEY on the server.',
     inputSchema: { sets: z.array(z.string()).min(1) },
-    annotations: { openWorldHint: true },
+    annotations: hints(false, false, false, true),
   }, safe(async ({ sets }) => {
     const inv = core.loadInventory();
     const out = [];
@@ -155,6 +157,7 @@ export function buildServer(opts) {
     title: 'Add or remove parts',
     description: 'Change quantities by hand. Positive qty adds, negative removes.',
     inputSchema: { items: z.array(z.object({ id: z.string().max(40), color: z.string().max(40), qty: z.number().int().min(-10000).max(10000) })).min(1).max(500) },
+    annotations: hints(false, true, false, false), // negative qty removes parts
   }, safe(async ({ items }) => {
     const inv = core.loadInventory();
     const bad = [];
@@ -170,7 +173,7 @@ export function buildServer(opts) {
   s.registerTool('inventory_clear', {
     title: 'Clear inventory',
     description: 'Delete all parts from the inventory. Only when the user explicitly asks.',
-    annotations: { destructiveHint: true },
+    annotations: hints(false, true, true, false),
   }, safe(async () => {
     const inv = core.loadInventory();
     const n = inv.items.length;
@@ -199,7 +202,7 @@ export function buildServer(opts) {
       add: z.boolean().optional().describe('add confident results to the inventory'),
       qty: z.number().int().min(1).optional().describe('how many of each photographed part the user has (default 1)'),
     },
-    annotations: { openWorldHint: true },
+    annotations: hints(false, false, false, true),
     _meta: { 'openai/fileParams': ['files'] },
   }, safe(async ({ files, images, add, qty }) => {
     const srcs = [...(files || []).map((f) => f.download_url), ...(images || [])];
@@ -229,7 +232,7 @@ export function buildServer(opts) {
       add: z.boolean().optional().describe('add the recognised parts to the inventory (default true)'),
       replace: z.boolean().optional().describe('replace the inventory instead of adding'),
     },
-    annotations: { openWorldHint: true },
+    annotations: hints(false, true, false, true), // replace=true wipes the inventory
     _meta: { 'openai/fileParams': ['files'] },
   }, safe(async ({ files, images, add, replace }) => {
     const srcs = [...(files || []).map((f) => f.download_url), ...(images || [])];
@@ -289,6 +292,7 @@ export function buildServer(opts) {
       size: z.union([z.number().int(), z.string()]).optional().describe('sizeIndex or size label from ideas_suggest; default: largest that fits'),
       allowMissing: z.boolean().optional().describe('build even if parts are missing (lists what to add)'),
     },
+    annotations: hints(false, false, true, false), // overwrites the saved model of that idea with the same result
   }, safe(async ({ idea, size, allowMissing }) => {
     const inv = core.loadInventory();
     const r = ideas.build(idea, inv, size, { shopping: !!allowMissing });
@@ -323,6 +327,7 @@ export function buildServer(opts) {
     title: 'Save a model',
     description: 'Save a model under a name so it can be rendered and reopened later.',
     inputSchema: { model: Model, name: z.string().regex(/^[a-z0-9_-]+$/i).describe('file name, latin letters/digits') },
+    annotations: hints(false, true, true, false), // overwrites a saved model with the same name
   }, safe(async ({ model, name }) => {
     const m = core.loadModel(JSON.parse(JSON.stringify(model)));
     const saved = core.saveModel({ ...m, name });
@@ -462,7 +467,7 @@ export function buildServer(opts) {
       mode: z.enum(['picture', 'steps', 'video']).optional(),
       format: z.enum(['vertical', 'horizontal']).optional(),
     },
-    annotations: { readOnlyHint: true, openWorldHint: false },
+    annotations: ro,
     _meta: cardMeta,
   }, safe(async ({ name, mode, format }) => (await card(core.loadModel(name), mode || 'picture', format, name)).result));
 
@@ -471,6 +476,7 @@ export function buildServer(opts) {
     description: 'Render the build film to an mp4 FILE for download (takes ~10-60 s). To show a video to the user in chat use show_build mode "video" instead; ' +
       'use this only when the user explicitly wants the file or a specific format.',
     inputSchema: { ...ModelRef, format: z.enum(['vertical', 'horizontal']).optional() },
+    annotations: ro,
     _meta: cardMeta,
   }, safe(async (a) => {
     const m = pickModel(a);
