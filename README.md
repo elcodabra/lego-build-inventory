@@ -64,11 +64,12 @@ The token in `?key=` is simple protection for personal use. For a public service
 
 ### Hosting on Vercel
 
-`api/mcp.mjs` is the serverless entry (state in a private Vercel Blob store, rendered media in a public one). Environment:
+`api/mcp.mjs` is the serverless entry. Each user's parts and models are one key in Upstash Redis (`api/_store.mjs`: one GET and one compare-and-set per request, daily quotas as atomic counters); without Redis it falls back to a private Vercel Blob store. Rendered PNG/mp4 go to a public Blob store, and identical files are uploaded only once. Handshakes, tool listings and reference tools don't touch storage at all. A full ChatGPT session (import, ideas, build, picture, steps) costs about 4 Blob operations instead of 27, which matters on Vercel Hobby (2,000 per month). Environment:
 
 | Variable | |
 |---|---|
 | `STATE_BLOB_TOKEN`, `MEDIA_BLOB_TOKEN` | private store for inventories/models, public store for PNG/mp4 |
+| `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Upstash Redis (Vercel Marketplace, free plan is enough). Users from the Blob store are copied over on first access |
 | `LEGO_MCP_TOKEN` | owner key: no quota |
 | `LEGO_OPEN=1` | anyone can get a key at `/` (each key is its own user, stored under a hash of the key) |
 | `LEGO_QUOTA_CALLS` / `_VIDEO` / `_PHOTO` | daily limits per open key (300 / 10 / 40) |

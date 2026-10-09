@@ -1,10 +1,12 @@
 // Vercel entry: MCP over Streamable HTTP (stateless) at /mcp.
 //
 // Serverless has no persistent disk, so each request works in its own /tmp directory and syncs the
-// user's state (inventory.json, models/*.json) with a PRIVATE Vercel Blob store (STATE_BLOB_TOKEN):
-// pulled before the tool call, pushed BEFORE the response is sent (so a reported success is saved),
-// with ETag checks so two instances cannot silently overwrite each other. Rendered PNG/mp4 go to a
-// PUBLIC store (MEDIA_BLOB_TOKEN) under unguessable names, so ChatGPT can show/link them.
+// user's state (inventory.json, models/*.json) with the state store (api/_store.mjs: Upstash Redis,
+// else a private Vercel Blob store): loaded before the tool call, saved BEFORE the response is sent
+// (so a reported success is saved), with a version check so two instances cannot silently
+// overwrite each other. Handshakes, listings and reference tools skip the store. Rendered PNG/mp4
+// go to a PUBLIC Blob store (MEDIA_BLOB_TOKEN) under unguessable names, so ChatGPT can show/link
+// them; identical files are uploaded once.
 //
 // Per-request context (data dir, safe mode, renderer) goes through AsyncLocalStorage (core.ctx),
 // never through process.env, so requests of different users run concurrently; requests of the same
@@ -21,12 +23,12 @@ import { createRequire } from 'node:module';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { waitUntil } from '@vercel/functions';
 import * as analytics from './_analytics.mjs';
+import * as store from './_store.mjs';
 
 const require = createRequire(import.meta.url);
 const core = require('../lib/core.cjs');
 
 const ROOT_TMP = '/tmp/lego';
-const STATE = process.env.STATE_BLOB_TOKEN;
 const MEDIA = process.env.MEDIA_BLOB_TOKEN;
 // Public store host, allowed in the player's CSP. From MEDIA_ORIGIN, or the store id in the token
 // (vercel_blob_rw_<storeId>_<secret> -> https://<storeid lowercase>.public.blob.vercel-storage.com).
@@ -49,8 +51,8 @@ export function userOf(req) {
 }
 
 // ---------------------------------------------------------------- daily quota (open users only)
-// Counted per user per UTC day in the state store (state/<user>/usage.json, same ETag guard), so it
-// holds across instances. Heavy tools have their own smaller caps.
+// Counted per key per UTC day, atomically (Redis; a local file without it). Heavy tools have their
+// own smaller caps.
 const QUOTA = {
   calls: Number(process.env.LEGO_QUOTA_CALLS || 300),
   video: Number(process.env.LEGO_QUOTA_VIDEO || 10),
@@ -58,105 +60,41 @@ const QUOTA = {
 };
 const isVideo = (m) => m.params && ((m.params.name === 'show_build' && m.params.arguments && m.params.arguments.mode === 'video') || m.params.name === 'model_render');
 const isPhoto = (m) => m.params && /^parts_from_(pile_)?photo$/.test(m.params.name);
-function chargeQuota(dir, msgs) {
-  const f = path.join(dir, 'usage.json');
-  const day = new Date().toISOString().slice(0, 10);
-  let u = {};
-  try { u = JSON.parse(fs.readFileSync(f, 'utf8')); } catch { /* first call */ }
-  const created = u.created || day;
-  if (u.day !== day) u = { day, calls: 0, video: 0, photo: 0 };
-  u.created = created;
+const usageOf = (msgs) => {
   const calls = msgs.filter((m) => m && m.method === 'tools/call');
-  const add = { calls: calls.length, video: calls.filter(isVideo).length, photo: calls.filter(isPhoto).length };
-  for (const k of Object.keys(add)) {
-    if (add[k] && u[k] + add[k] > QUOTA[k]) return { over: k, limit: QUOTA[k] };
-  }
-  for (const k of Object.keys(add)) u[k] += add[k];
-  fs.writeFileSync(f, JSON.stringify(u));
-  return { ok: true, newUser: !fs.existsSync(path.join(dir, 'inventory.json')) && created === day && u.calls === add.calls && add.calls > 0 };
-}
+  return { calls: calls.length, video: calls.filter(isVideo).length, photo: calls.filter(isPhoto).length };
+};
 
-// Blob layout: state/<user>/inventory.json, state/<user>/models/<name>.json, media/<random>.<ext>
-// Without STATE_BLOB_TOKEN (local runs, tests) a directory stands in for the store.
-const LOCAL_STORE = path.join(ROOT_TMP, '_store');
-const STATE_FILE = /^(inventory\.json|usage\.json|models\/[a-z0-9_-]{1,64}\.json)$/;
-function localFiles(user) {
-  const base = path.join(LOCAL_STORE, user);
-  const out = [];
-  for (const f of ['inventory.json', 'usage.json']) if (fs.existsSync(path.join(base, f))) out.push(f);
-  if (fs.existsSync(path.join(base, 'models'))) for (const f of fs.readdirSync(path.join(base, 'models'))) out.push('models/' + f);
-  return out.filter((rel) => STATE_FILE.test(rel));
+// Requests that never read or write the user's parts/models: protocol handshakes and listings, and
+// the reference tools. They skip the state store entirely (no reads, no writes).
+const STATELESS_TOOLS = new Set(['lego_guide', 'lego_catalog', 'lego_photo_guide']);
+const BUILTIN_MODELS = new Set(['cat', 'microduck']);
+function callNeedsState(m) {
+  const name = m.params && m.params.name;
+  if (STATELESS_TOOLS.has(name)) return false;
+  if (name === 'model_get') return !BUILTIN_MODELS.has(String(m.params.arguments && m.params.arguments.name));
+  return true;
 }
-async function pull(user, dir) {
-  fs.mkdirSync(path.join(dir, 'models'), { recursive: true });
-  fs.mkdirSync(path.join(dir, 'exports'), { recursive: true });
-  const seen = new Map();
-  if (!STATE) {
-    for (const rel of localFiles(user)) {
-      const buf = fs.readFileSync(path.join(LOCAL_STORE, user, rel));
-      fs.writeFileSync(path.join(dir, rel), buf);
-      seen.set(rel, { hash: hash(buf) });
-    }
-    return seen;
-  }
-  const { list, get } = await B();
-  let cursor;
-  do {
-    const r = await list({ prefix: `state/${user}/`, cursor, limit: 1000, token: STATE });
-    await Promise.all(r.blobs.map(async (b) => {
-      const rel = b.pathname.slice(`state/${user}/`.length);
-      if (!STATE_FILE.test(rel)) return;
-      const g = await get(b.pathname, { access: 'private', useCache: false, token: STATE });
-      // a failed read must not look like "no inventory": that would overwrite it on push
-      if (!g || g.statusCode !== 200) throw new Error(`state read failed for ${rel}`);
-      const buf = Buffer.from(await new Response(g.stream).arrayBuffer());
-      fs.writeFileSync(path.join(dir, rel), buf);
-      // get() may report a weak W/"..." ETag (compressed transfer) that ifMatch rejects; list() has
-      // the store's strong ETag. If the blob changed between list and get, the write fails safely.
-      seen.set(rel, { hash: hash(buf), etag: b.etag || String(g.blob.etag).replace(/^W\//, '') });
-    }));
-    cursor = r.cursor;
-  } while (cursor);
-  return seen;
-}
+const needsState = (msgs) => msgs.some((m) => m && m.method === 'tools/call' && callNeedsState(m));
 
-const hash = (buf) => crypto.createHash('sha1').update(buf).digest('hex');
+const MEDIA_DAYS = Number(process.env.LEGO_MEDIA_DAYS || 30);
 
-// Writes changed files; a changed file must still have the ETag we read (or not exist yet), so a
-// concurrent write from another instance makes this request fail instead of being lost.
-async function push(user, dir, before) {
-  const files = [];
-  for (const f of ['inventory.json', 'usage.json']) if (fs.existsSync(path.join(dir, f))) files.push(f);
-  for (const f of fs.readdirSync(path.join(dir, 'models'))) if (/^[a-z0-9_-]{1,64}\.json$/.test(f)) files.push('models/' + f);
-  const changed = files.filter((rel) => !before.has(rel) || before.get(rel).hash !== hash(fs.readFileSync(path.join(dir, rel))));
-  if (!STATE) {
-    for (const rel of changed) {
-      fs.mkdirSync(path.dirname(path.join(LOCAL_STORE, user, rel)), { recursive: true });
-      fs.copyFileSync(path.join(dir, rel), path.join(LOCAL_STORE, user, rel));
-    }
-    return changed;
-  }
-  const { put } = await B();
-  const results = await Promise.allSettled(changed.map((rel) => put(`state/${user}/${rel}`, fs.readFileSync(path.join(dir, rel)), {
-    access: 'private', addRandomSuffix: false, allowOverwrite: true, contentType: 'application/json', token: STATE,
-    ...(before.has(rel) ? { ifMatch: before.get(rel).etag } : {}),
-  })));
-  const failed = results.map((r, i) => (r.status === 'rejected' ? `${changed[i]}: ${r.reason && r.reason.message}` : null)).filter(Boolean);
-  if (failed.length) {
-    const e = new Error('saving failed (changed concurrently? try again): ' + failed.join('; '));
-    e.conflict = failed.some((f) => /Precondition failed|ETag/i.test(f));
-    throw e;
-  }
-  return changed;
-}
-
+// Public media upload. The same bytes are uploaded once (sha1 -> URL remembered in Redis for a
+// bit less than the media lifetime), so re-showing a picture costs no Blob operation.
+export const mediaStats = { uploads: 0, reused: 0 };
 async function publish(file) {
   if (!MEDIA) return null;
+  const buf = fs.readFileSync(file);
+  const sha = crypto.createHash('sha1').update(buf).digest('hex');
+  const known = await store.mediaUrlFor(sha).catch(() => null);
+  if (known) { mediaStats.reused++; return known; }
   const { put } = await B();
   const ext = path.extname(file);
-  const r = await put(`media/${crypto.randomBytes(12).toString('hex')}-${path.basename(file, ext)}${ext}`, fs.readFileSync(file), {
+  mediaStats.uploads++;
+  const r = await put(`media/${crypto.randomBytes(12).toString('hex')}-${path.basename(file, ext)}${ext}`, buf, {
     access: 'public', addRandomSuffix: false, contentType: ext === '.mp4' ? 'video/mp4' : 'image/png', token: MEDIA,
   });
+  await store.rememberMedia(sha, r.url, MEDIA_DAYS).catch(() => {});
   return r.url;
 }
 
@@ -260,25 +198,29 @@ export default async function handler(req, res) {
     try { waitUntil(p); } catch { /* not on Vercel: the promise just runs */ }
   };
   const hasCalls = msgs.some((m) => m && m.method === 'tools/call');
+  const stateful = needsState(msgs);
 
   try {
-    // One attempt = pull, run the tool, push with ETag checks. Another instance writing the same
-    // user's state in between makes push fail with a conflict: redo the whole call on fresh state.
+    // Quota first (atomic, before any work). Then one attempt = load state, run the tool, save with a
+    // version check. Another instance writing the same user's state in between makes the save fail
+    // with a conflict: redo the whole call on fresh state. Stateless requests skip the store.
+    if (user !== 'owner' && hasCalls) {
+      const q = await store.chargeQuota(user, usageOf(msgs), QUOTA);
+      if (!q.ok) {
+        const e = new Error(`daily limit reached: ${q.limit} ${q.over === 'calls' ? 'tool calls' : q.over === 'video' ? 'videos' : 'photos'} per day for this key, try again tomorrow`);
+        e.quota = true;
+        throw e;
+      }
+      newUser = q.first;
+    }
     const attempt = async () => {
       const dir = path.join(ROOT_TMP, user + '-' + crypto.randomBytes(6).toString('hex'));
       let srv = null;
       let transport = null;
       try {
-        const before = await pull(user, dir);
-        if (user !== 'owner' && hasCalls) {
-          const q = chargeQuota(dir, msgs);
-          if (!q.ok) {
-            const e = new Error(`daily limit reached: ${q.limit} ${q.over === 'calls' ? 'tool calls' : q.over === 'video' ? 'videos' : 'photos'} per day for this key, try again tomorrow`);
-            e.quota = true;
-            throw e;
-          }
-          newUser = q.newUser;
-        }
+        let ver = null;
+        if (stateful) ver = await store.load(user, dir);
+        else { fs.mkdirSync(path.join(dir, 'models'), { recursive: true }); fs.mkdirSync(path.join(dir, 'exports'), { recursive: true }); }
         return await core.ctx.run({ dataDir: dir, safe: true, renderer: 'node' }, async () => {
           const { buildServer } = await import('../mcp/tools.mjs');
           srv = buildServer({ publish, mediaOrigin: MEDIA_ORIGIN });
@@ -288,7 +230,7 @@ export default async function handler(req, res) {
           const payload = Buffer.from(await r.arrayBuffer());
           const headers = {};
           r.headers.forEach((v, k) => { headers[k] = v; });
-          const saved = await push(user, dir, before);
+          const saved = stateful ? await store.save(user, dir, ver) : [];
           return { status: r.status, headers, body: payload, saved };
         });
       } finally {
@@ -311,7 +253,7 @@ export default async function handler(req, res) {
     res.status(out.status).end(out.body);
     const txt = out.body.toString('utf8', 0, 400);
     const isErr = /"isError":true|"error":\{/.test(txt);
-    log({ status: out.status, saved: out.saved.length ? out.saved.filter((f) => f !== 'usage.json') : undefined, err: isErr ? txt.replace(/\s+/g, ' ').slice(0, 300) : undefined });
+    log({ status: out.status, saved: out.saved.length ? out.saved : undefined, err: isErr ? txt.replace(/\s+/g, ' ').slice(0, 300) : undefined });
     track(out.status, out.body.toString('utf8', 0, 20000), isErr);
   } catch (e) {
     if (!e.quota) console.error(e);
