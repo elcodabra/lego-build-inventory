@@ -11,13 +11,16 @@
 // user are serialised by a per-user lock on this instance.
 //
 // Auth: key in the Authorization: Bearer header or ?key= (ChatGPT connectors only allow a URL).
-// LEGO_MCP_TOKEN = the single owner key. LEGO_OPEN=1 = any random key of 24+ chars is its own user
-// (data filed under sha256(key), the key itself is never stored).
+// LEGO_MCP_TOKEN = the owner key (user "owner", no quota). LEGO_OPEN=1 additionally lets anyone in
+// with their own random key of 24+ chars (GET / hands one out): each key is its own user, data filed
+// under sha256(key), the key itself is never stored. Open users have a daily quota per key.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
+import { waitUntil } from '@vercel/functions';
+import * as analytics from './_analytics.mjs';
 
 const require = createRequire(import.meta.url);
 const core = require('../lib/core.cjs');
@@ -33,23 +36,54 @@ let blob = null;
 const B = async () => (blob ||= await import('@vercel/blob'));
 
 const sha = (s) => crypto.createHash('sha256').update(s).digest();
-function userOf(req) {
+const keyOf = (req) => {
   const url = new URL(req.url, 'http://x');
-  const key = (req.headers.authorization || '').replace(/^Bearer\s+/i, '') || url.searchParams.get('key') || '';
+  return (req.headers.authorization || '').replace(/^Bearer\s+/i, '') || url.searchParams.get('key') || '';
+};
+export function userOf(req) {
+  const key = keyOf(req);
   const token = process.env.LEGO_MCP_TOKEN;
-  if (token) return crypto.timingSafeEqual(sha(key), sha(token)) ? 'owner' : null;
-  if (process.env.LEGO_OPEN === '1' && key.length >= 24 && new Set(key).size >= 10) return 'u' + sha(key).toString('hex').slice(0, 24);
+  if (token && crypto.timingSafeEqual(sha(key), sha(token))) return 'owner';
+  if (process.env.LEGO_OPEN === '1' && /^[A-Za-z0-9_-]{24,128}$/.test(key) && new Set(key).size >= 10) return 'u' + sha(key).toString('hex').slice(0, 24);
   return null;
+}
+
+// ---------------------------------------------------------------- daily quota (open users only)
+// Counted per user per UTC day in the state store (state/<user>/usage.json, same ETag guard), so it
+// holds across instances. Heavy tools have their own smaller caps.
+const QUOTA = {
+  calls: Number(process.env.LEGO_QUOTA_CALLS || 300),
+  video: Number(process.env.LEGO_QUOTA_VIDEO || 10),
+  photo: Number(process.env.LEGO_QUOTA_PHOTO || 40),
+};
+const isVideo = (m) => m.params && ((m.params.name === 'show_build' && m.params.arguments && m.params.arguments.mode === 'video') || m.params.name === 'model_render');
+const isPhoto = (m) => m.params && /^parts_from_(pile_)?photo$/.test(m.params.name);
+function chargeQuota(dir, msgs) {
+  const f = path.join(dir, 'usage.json');
+  const day = new Date().toISOString().slice(0, 10);
+  let u = {};
+  try { u = JSON.parse(fs.readFileSync(f, 'utf8')); } catch { /* first call */ }
+  const created = u.created || day;
+  if (u.day !== day) u = { day, calls: 0, video: 0, photo: 0 };
+  u.created = created;
+  const calls = msgs.filter((m) => m && m.method === 'tools/call');
+  const add = { calls: calls.length, video: calls.filter(isVideo).length, photo: calls.filter(isPhoto).length };
+  for (const k of Object.keys(add)) {
+    if (add[k] && u[k] + add[k] > QUOTA[k]) return { over: k, limit: QUOTA[k] };
+  }
+  for (const k of Object.keys(add)) u[k] += add[k];
+  fs.writeFileSync(f, JSON.stringify(u));
+  return { ok: true, newUser: !fs.existsSync(path.join(dir, 'inventory.json')) && created === day && u.calls === add.calls && add.calls > 0 };
 }
 
 // Blob layout: state/<user>/inventory.json, state/<user>/models/<name>.json, media/<random>.<ext>
 // Without STATE_BLOB_TOKEN (local runs, tests) a directory stands in for the store.
 const LOCAL_STORE = path.join(ROOT_TMP, '_store');
-const STATE_FILE = /^(inventory\.json|models\/[a-z0-9_-]{1,64}\.json)$/;
+const STATE_FILE = /^(inventory\.json|usage\.json|models\/[a-z0-9_-]{1,64}\.json)$/;
 function localFiles(user) {
   const base = path.join(LOCAL_STORE, user);
   const out = [];
-  if (fs.existsSync(path.join(base, 'inventory.json'))) out.push('inventory.json');
+  for (const f of ['inventory.json', 'usage.json']) if (fs.existsSync(path.join(base, f))) out.push(f);
   if (fs.existsSync(path.join(base, 'models'))) for (const f of fs.readdirSync(path.join(base, 'models'))) out.push('models/' + f);
   return out.filter((rel) => STATE_FILE.test(rel));
 }
@@ -92,7 +126,7 @@ const hash = (buf) => crypto.createHash('sha1').update(buf).digest('hex');
 // concurrent write from another instance makes this request fail instead of being lost.
 async function push(user, dir, before) {
   const files = [];
-  if (fs.existsSync(path.join(dir, 'inventory.json'))) files.push('inventory.json');
+  for (const f of ['inventory.json', 'usage.json']) if (fs.existsSync(path.join(dir, f))) files.push(f);
   for (const f of fs.readdirSync(path.join(dir, 'models'))) if (/^[a-z0-9_-]{1,64}\.json$/.test(f)) files.push('models/' + f);
   const changed = files.filter((rel) => !before.has(rel) || before.get(rel).hash !== hash(fs.readFileSync(path.join(dir, rel))));
   if (!STATE) {
@@ -157,6 +191,33 @@ function withUserLock(user, fn) {
   return p;
 }
 
+// GET / in a browser: what this is and, in open mode, a fresh personal key with the connector URL.
+function keyPage(req) {
+  const open = process.env.LEGO_OPEN === '1';
+  const host = req.headers['x-forwarded-host'] || req.headers.host || 'lego-mcp.vercel.app';
+  const key = crypto.randomBytes(24).toString('base64url');
+  const url = `https://${host}/mcp?key=${key}`;
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+  return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LEGO из моих деталей · MCP</title><meta name="robots" content="noindex">
+<style>body{font:16px/1.5 system-ui,-apple-system,sans-serif;max-width:640px;margin:40px auto;padding:0 20px;color:#1f2328}
+code,input{font:14px ui-monospace,Menlo,monospace}input{width:100%;padding:10px;border:1px solid #d0d7de;border-radius:8px;box-sizing:border-box}
+button{margin-top:8px;padding:8px 16px;border:0;border-radius:999px;background:#ffd500;font-weight:600;cursor:pointer}
+ol li{margin:6px 0}.muted{color:#656d76;font-size:14px}</style></head><body>
+<h1>🧱 LEGO из моих деталей</h1>
+<p>MCP-сервер: сфотографируй свои детали, получи идеи, что собрать, и пошаговую инструкцию картинками или видео.</p>
+${open ? `<h2>Твоя ссылка для подключения</h2>
+<input id="u" readonly value="${esc(url)}" onclick="this.select()"><button onclick="navigator.clipboard.writeText(document.getElementById('u').value);this.textContent='Скопировано'">Скопировать</button>
+<p class="muted">Ссылка личная: в ней ключ к твоим деталям и моделям. Сохрани её, мы её не храним и восстановить не сможем. Обновишь страницу — получишь новую, с пустым набором.</p>
+<h2>Как подключить</h2>
+<ol><li><b>ChatGPT</b>: Settings → Apps → Advanced → Developer mode → Create app, URL = ссылка выше, Authentication: No Auth.</li>
+<li><b>Claude</b>: Settings → Connectors → Add custom connector, URL = ссылка выше.</li></ol>
+<p class="muted">Лимит на ключ в сутки: ${QUOTA.calls} вызовов, ${QUOTA.video} видео, ${QUOTA.photo} фото. Мы считаем анонимную статистику использования (какие инструменты вызываются), без фото, списков деталей и ключей. Картинки и видео хранятся ${Number(process.env.LEGO_MEDIA_DAYS || 30)} дней.</p>`
+    : '<p>Сервер работает по личному ключу владельца.</p>'}
+<p class="muted"><a href="https://github.com/elcodabra/lego-build-inventory">GitHub</a> · LEGO® is a trademark of the LEGO Group, this project is not affiliated with it.</p>
+</body></html>`;
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', '*');
@@ -166,7 +227,13 @@ export default async function handler(req, res) {
     // MCP clients open an SSE stream with GET; this stateless server has none, and the spec
     // says to answer 405 then (a 200 makes clients reconnect in a loop). Browsers get a hint.
     if (/text\/event-stream/.test(req.headers.accept || '')) return res.status(405).setHeader('Allow', 'POST').end();
-    return res.status(200).json({ name: 'lego-inventory-build', mcp: 'POST /mcp?key=<your key>' });
+    if (/text\/html/.test(req.headers.accept || '')) {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-store'); // every visit gets its own key
+      res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-ancestors 'none'");
+      return res.status(200).end(keyPage(req));
+    }
+    return res.status(200).json({ name: 'lego-inventory-build', mcp: 'POST /mcp?key=<your key>', open: process.env.LEGO_OPEN === '1' });
   }
   if (req.method !== 'POST') return res.status(405).end();
   const user = userOf(req);
@@ -186,6 +253,13 @@ export default async function handler(req, res) {
   const what = msgs.map((m) => (m && m.method === 'tools/call' ? `tools/call:${m.params && m.params.name}` : m && m.method)).join(',');
   const args = msgs.filter((m) => m && m.method === 'tools/call').map((m) => Object.keys((m.params && m.params.arguments) || {}).join('|'));
   const log = (extra) => console.log(JSON.stringify({ ev: 'mcp', user: user.slice(0, 8), what, args: args.length ? args : undefined, ms: Date.now() - t0, ua, ...extra }));
+  const client = analytics.clientOf(ua, body);
+  let newUser = false;
+  const track = (status, payload, error) => {
+    const p = analytics.send(analytics.events({ userId: user === 'owner' ? 'owner' : user.slice(0, 13), msgs, ua, client, status, ms: Date.now() - t0, payload, error, newUser }));
+    try { waitUntil(p); } catch { /* not on Vercel: the promise just runs */ }
+  };
+  const hasCalls = msgs.some((m) => m && m.method === 'tools/call');
 
   try {
     // One attempt = pull, run the tool, push with ETag checks. Another instance writing the same
@@ -196,6 +270,15 @@ export default async function handler(req, res) {
       let transport = null;
       try {
         const before = await pull(user, dir);
+        if (user !== 'owner' && hasCalls) {
+          const q = chargeQuota(dir, msgs);
+          if (!q.ok) {
+            const e = new Error(`daily limit reached: ${q.limit} ${q.over === 'calls' ? 'tool calls' : q.over === 'video' ? 'videos' : 'photos'} per day for this key, try again tomorrow`);
+            e.quota = true;
+            throw e;
+          }
+          newUser = q.newUser;
+        }
         return await core.ctx.run({ dataDir: dir, safe: true, renderer: 'node' }, async () => {
           const { buildServer } = await import('../mcp/tools.mjs');
           srv = buildServer({ publish, mediaOrigin: MEDIA_ORIGIN });
@@ -227,12 +310,19 @@ export default async function handler(req, res) {
     for (const [k, v] of Object.entries(out.headers)) res.setHeader(k, v);
     res.status(out.status).end(out.body);
     const txt = out.body.toString('utf8', 0, 400);
-    log({ status: out.status, saved: out.saved.length ? out.saved : undefined, err: /"isError":true|"error":\{/.test(txt) ? txt.replace(/\s+/g, ' ').slice(0, 300) : undefined });
+    const isErr = /"isError":true|"error":\{/.test(txt);
+    log({ status: out.status, saved: out.saved.length ? out.saved.filter((f) => f !== 'usage.json') : undefined, err: isErr ? txt.replace(/\s+/g, ' ').slice(0, 300) : undefined });
+    track(out.status, out.body.toString('utf8', 0, 20000), isErr);
   } catch (e) {
-    console.error(e);
-    log({ status: 500, err: e.message });
+    if (!e.quota) console.error(e);
+    log({ status: e.quota ? 429 : 500, err: e.message });
+    track(e.quota ? 429 : 500, '', true);
     // JSON-RPC error for the request id, so the client shows a real message
     const id = msgs.length === 1 && msgs[0] && msgs[0].id !== undefined ? msgs[0].id : null;
-    if (!res.headersSent) res.status(200).json({ jsonrpc: '2.0', id, error: { code: -32603, message: e.message } });
+    if (!res.headersSent) {
+      // a quota hit on a tool call is a tool result the model can relay to the user
+      if (e.quota && msgs.length === 1 && msgs[0].method === 'tools/call') res.status(200).json({ jsonrpc: '2.0', id, result: { isError: true, content: [{ type: 'text', text: e.message }] } });
+      else res.status(200).json({ jsonrpc: '2.0', id, error: { code: -32603, message: e.message } });
+    }
   }
 }

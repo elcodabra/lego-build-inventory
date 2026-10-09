@@ -453,6 +453,10 @@ function saveModel(model, dir) {
   const d = dir || path.join(dataDir(), 'models');
   fs.mkdirSync(d, { recursive: true });
   const file = path.join(d, name + '.json');
+  // hosted (safe) mode keeps the per-user store small: a bounded number of saved models
+  if (safeMode() && !fs.existsSync(file) && fs.readdirSync(d).filter((f) => f.endsWith('.json')).length >= 50) {
+    throw new Error('too many saved models (max 50): reuse a name to overwrite one');
+  }
   const clean = { title: model.title, theta: model.theta, phi: model.phi, steps: model.steps };
   fs.writeFileSync(file, JSON.stringify(clean, null, 1) + '\n');
   return { name, file };

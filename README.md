@@ -40,7 +40,14 @@ On first launch the MCP server runs `npm install` and fetches Chromium for Playw
 
 ### ChatGPT (web, developer mode)
 
-ChatGPT only connects to MCP servers over a public HTTPS URL.
+**Quickest: the hosted server.** Open https://lego-mcp.vercel.app, copy your personal connector URL (it contains your own key: keep it, it is not stored and cannot be recovered), then:
+
+1. ChatGPT → Settings → Apps → Advanced → **Developer mode** → Create app, URL = your link, Authentication: No Auth.
+2. Claude → Settings → Connectors → Add custom connector, URL = your link.
+
+Each key is a separate user with its own parts and models. Limits per key per day: 300 tool calls, 10 videos, 40 photos. Pictures and videos are kept for 30 days.
+
+**Or run your own.** ChatGPT only connects to MCP servers over a public HTTPS URL.
 
 ```bash
 cd plugins/lego-inventory-build/skills/lego-inventory-build
@@ -54,6 +61,21 @@ LEGO_MCP_TOKEN=$(openssl rand -hex 16) PUBLIC_URL=https://<your-tunnel> npm run 
 3. In the chat: **+** → Developer mode → LEGO. Prompt: *"Use the lego app. Here are my sets 31058 and 10696, what can I build?"*
 
 The token in `?key=` is simple protection for personal use. For a public service you'd need OAuth and your own hosting (Fly.io, Render, any VPS with Chromium and ffmpeg). Links to mp4/PNG are served from `PUBLIC_URL/files/...`.
+
+### Hosting on Vercel
+
+`api/mcp.mjs` is the serverless entry (state in a private Vercel Blob store, rendered media in a public one). Environment:
+
+| Variable | |
+|---|---|
+| `STATE_BLOB_TOKEN`, `MEDIA_BLOB_TOKEN` | private store for inventories/models, public store for PNG/mp4 |
+| `LEGO_MCP_TOKEN` | owner key: no quota |
+| `LEGO_OPEN=1` | anyone can get a key at `/` (each key is its own user, stored under a hash of the key) |
+| `LEGO_QUOTA_CALLS` / `_VIDEO` / `_PHOTO` | daily limits per open key (300 / 10 / 40) |
+| `CRON_SECRET`, `LEGO_MEDIA_DAYS` | daily cron `/api/cleanup` deletes media older than N days (30) |
+| `AMPLITUDE_API_KEY` (`AMPLITUDE_ENDPOINT` for the EU region) | usage analytics, see below |
+
+**Analytics.** With `AMPLITUDE_API_KEY` set, each MCP request sends Amplitude events after the reply: `session_start`, `user_created`, `tool_call` with tool name, client (chatgpt, claude, codex…), duration, status (429 = daily limit), argument names and a few counts (idea, parts, steps). The user id is a hash prefix of the key (`owner` for the owner). Never sent: keys, photos, part lists, model JSON, media URLs.
 
 ## MCP tools
 
