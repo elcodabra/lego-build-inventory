@@ -1,4 +1,5 @@
-// Daily Vercel cron: deletes rendered PNG/mp4 older than LEGO_MEDIA_DAYS (default 30) from the public
+// Daily Vercel cron: writes a Redis heartbeat (free Upstash databases idle for 30 days are archived)
+// and deletes rendered PNG/mp4 older than LEGO_MEDIA_DAYS (default 30) from the public
 // media store, so an open server does not grow without bound. Links in old chats stop working after
 // that, which the key page states. Vercel calls it with "Authorization: Bearer $CRON_SECRET".
 import crypto from 'node:crypto';
@@ -9,8 +10,11 @@ export default async function handler(req, res) {
   const secret = process.env.CRON_SECRET;
   const got = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
   if (!secret || !crypto.timingSafeEqual(sha(got), sha(secret))) return res.status(401).end();
+  // keep the free Redis database active (archived after 30 idle days)
+  const { heartbeat } = await import('./_store.mjs');
+  const redisKeys = await heartbeat().catch((e) => { console.log(JSON.stringify({ ev: 'heartbeat_error', err: e.message })); return null; });
   const token = process.env.MEDIA_BLOB_TOKEN;
-  if (!token) return res.status(200).json({ deleted: 0, note: 'no media store' });
+  if (!token) return res.status(200).json({ deleted: 0, redisKeys, note: 'no media store' });
   const days = Number(process.env.LEGO_MEDIA_DAYS || 30);
   const cutoff = Date.now() - days * 864e5;
   const { list, del } = await import('@vercel/blob');
@@ -25,6 +29,6 @@ export default async function handler(req, res) {
     deleted += old.length;
     cursor = r.hasMore ? r.cursor : null;
   } while (cursor);
-  console.log(JSON.stringify({ ev: 'media_cleanup', deleted, kept, days }));
-  return res.status(200).json({ deleted, kept, days });
+  console.log(JSON.stringify({ ev: 'media_cleanup', deleted, kept, days, redisKeys }));
+  return res.status(200).json({ deleted, kept, days, redisKeys });
 }

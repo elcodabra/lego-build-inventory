@@ -198,13 +198,21 @@ export async function chargeQuota(user, add, limits) {
 
 // ---------------------------------------------------------------- media dedup
 
-// Same bytes -> same URL: remembers sha1(content) -> url for a while, so re-rendering the same
-// picture does not upload (and pay for) it again.
+// Same bytes -> same URL: remembers sha1(content) -> url for a week, so re-rendering the same
+// picture does not upload (and pay for) it again. Kept short so a reused link still has most of
+// its media lifetime left before the cleanup cron deletes the file.
 export async function mediaUrlFor(sha) {
   if (backend !== 'redis') return null;
   return redis(['GET', `${NS}:media:${sha}`]);
 }
 export async function rememberMedia(sha, url, days) {
   if (backend !== 'redis') return;
-  await redis(['SET', `${NS}:media:${sha}`, url, 'EX', String(Math.max(1, days - 1) * 86400)]);
+  await redis(['SET', `${NS}:media:${sha}`, url, 'EX', String(Math.max(1, Math.min(7, days - 7)) * 86400)]);
+}
+
+// Free Upstash databases unused for 30 days get archived: the daily cron writes this heartbeat.
+export async function heartbeat() {
+  if (backend !== 'redis') return null;
+  await redis(['SET', `${NS}:heartbeat`, new Date().toISOString()]);
+  return redis(['DBSIZE']);
 }

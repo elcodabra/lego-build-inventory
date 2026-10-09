@@ -4,7 +4,6 @@
 //   KV_REST_API_URL=... KV_REST_API_TOKEN=... node test/store-ops.mjs
 import http from 'node:http';
 import assert from 'node:assert/strict';
-import { createRequire } from 'node:module';
 
 if (!process.env.KV_REST_API_URL) { console.log('skip: no KV_REST_API_URL'); process.exit(0); }
 const prefix = 'legotest' + Date.now().toString(36);
@@ -12,13 +11,9 @@ Object.assign(process.env, { VERCEL: '1', LEGO_MCP_TOKEN: 'owner-key-123', LEGO_
 delete process.env.STATE_BLOB_TOKEN;
 delete process.env.AMPLITUDE_API_KEY;
 
-// count Blob calls: stub @vercel/blob put()
-const require = createRequire(import.meta.url);
-const blobPath = require.resolve('@vercel/blob');
+// count Blob calls: a stub @vercel/blob that only counts
 const ops = { put: 0, list: 0, get: 0 };
-const blob = await import('@vercel/blob');
-const fakeBlob = { ...blob, put: async (p) => { ops.put++; return { url: 'https://teststore.public.blob.vercel-storage.com/' + p }; }, list: async () => { ops.list++; return { blobs: [] }; }, get: async () => { ops.get++; return null; } };
-const { syncBuiltinESMExports } = await import('node:module');
+const fakeBlob = { put: async (p) => { ops.put++; return { url: 'https://teststore.public.blob.vercel-storage.com/' + p }; }, list: async () => { ops.list++; return { blobs: [] }; }, get: async () => { ops.get++; return null; } };
 // the handler imports @vercel/blob lazily via import(): intercept with a loader hook
 const { register } = await import('node:module');
 register('data:text/javascript,' + encodeURIComponent(`
@@ -90,6 +85,8 @@ assert.equal(qs.filter((q) => q.first).length, 1); ok('exactly one "first call" 
 
 // ---- clean up test keys
 const R = (cmd) => fetch(process.env.KV_REST_API_URL, { method: 'POST', headers: { authorization: 'Bearer ' + process.env.KV_REST_API_TOKEN }, body: JSON.stringify(cmd) }).then((r) => r.json());
+const hb = await store.heartbeat();
+assert.ok(hb >= 1); ok('heartbeat written (keeps the free database active)');
 let cur = '0'; let n = 0;
 do { const r = (await R(['SCAN', cur, 'MATCH', prefix + ':*', 'COUNT', '200'])).result; cur = r[0]; if (r[1].length) { await R(['DEL', ...r[1]]); n += r[1].length; } } while (cur !== '0');
 ok(`removed ${n} test keys`);
