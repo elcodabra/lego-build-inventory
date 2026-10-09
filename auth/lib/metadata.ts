@@ -1,5 +1,5 @@
 // Authorization server metadata (RFC 8414), served at both well-known paths.
-import { GOOGLE, ISSUER, SCOPES } from './config';
+import { ISSUER, SCOPES } from './config';
 
 export function metadata() {
   return {
@@ -23,7 +23,6 @@ export function metadata() {
     id_token_signing_alg_values_supported: ['ES256'],
     service_documentation: 'https://github.com/elcodabra/lego-build-inventory',
     ui_locales_supported: ['ru', 'en'],
-    login_methods: GOOGLE ? ['passkey', 'google'] : ['passkey'],
   };
 }
 

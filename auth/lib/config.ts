@@ -6,8 +6,8 @@
 //   AUTH_SIGNING_KEY     private JWK (JSON) for signing access tokens; generated per process if absent (dev)
 //   AUTH_SECRET          32+ random bytes (hex/base64) for cookies and CSRF
 //   KV_REST_API_URL/TOKEN  Upstash Redis (in-memory store when absent: dev/tests only)
-//   GOOGLE_CLIENT_ID/SECRET  optional "Sign in with Google"
-//   AUTH_REDIRECT_ALLOW  extra allowed redirect URI prefixes for DCR (comma-separated)
+//   AUTH_REDIRECT_ALLOW  extra exact redirect URIs allowed for DCR (comma-separated)
+// Sign-in method: passkeys (WebAuthn) only.
 
 const strip = (s: string) => s.replace(/\/+$/, '');
 
@@ -28,9 +28,6 @@ export const TTL = {
   cimd: 60 * 60, // cached client metadata document
 };
 
-export const GOOGLE = process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
-  ? { id: process.env.GOOGLE_CLIENT_ID, secret: process.env.GOOGLE_CLIENT_SECRET }
-  : null;
 
 // Redirect URIs accepted for dynamically registered clients: exact callback URLs of the known MCP
 // hosts, plus loopback (native/CLI clients). CIMD clients bring their own redirect list from their

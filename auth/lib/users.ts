@@ -1,14 +1,13 @@
 // Users, browser sessions and passkeys.
 //
-// A user is an opaque id (u_...). Login methods point at it: passkey credentials (WebAuthn) and,
-// when configured, a Google account (by its stable "sub"). The browser session at the auth server
-// is an HMAC-signed cookie holding a random session id stored in KV.
+// A user is an opaque id (u_...). Login method: passkey credentials (WebAuthn) pointing at it. The
+// browser session at the auth server is an HMAC-signed cookie holding a random session id in KV.
 import { cookies } from 'next/headers';
 import { SECURE, TTL } from './config';
 import { kv } from './kv';
 import { randomId, sign, unsign } from './crypto';
 
-export type User = { id: string; name: string; email?: string; created: number; credentials: string[]; google?: string };
+export type User = { id: string; name: string; email?: string; created: number; credentials: string[] };
 export type Passkey = { id: string; userId: string; publicKey: string; counter: number; transports?: string[]; created: number; name: string };
 
 export const SESSION_COOKIE = SECURE ? '__Host-lego_session' : 'lego_session';
