@@ -111,6 +111,7 @@
         <div class="row">
           ${d.mode !== 'steps' ? '<button class="act primary" data-mode="steps">Шаги картинками</button>' : ''}
           ${d.mode !== 'video' ? '<button class="act" data-mode="video">▶ Видео сборки</button>' : `<a class="act" href="${url(d.videoUrl)}" target="_blank" rel="noopener">Скачать mp4</a>`}
+          ${d.mode === 'video' && /^https:\/\/(youtu\.be|www\.youtube\.com)\//.test(String(d.youtubeUrl || '')) ? `<a class="act" href="${url(d.youtubeUrl)}" target="_blank" rel="noopener">На YouTube</a>` : ''}
           ${d.mode !== 'picture' ? '<button class="act" data-mode="picture">Готовая модель</button>' : ''}
         </div>
       </div>`;

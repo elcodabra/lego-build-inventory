@@ -392,14 +392,18 @@ export function buildServer(opts) {
       urls[i] = await fileUrl(f);
     }));
     let videoUrl = null;
+    let youtubeUrl = null;
     if (md === 'video') {
       const r = await film.render(m, path.join(exportsDir(), base + '.mp4'), { format });
       videoUrl = await fileUrl(r.file);
+      // the host may copy the film elsewhere (the hosted server: the owner's YouTube channel);
+      // it returns a link only when one already exists, the upload itself runs after the reply
+      if (opts && opts.onVideo) youtubeUrl = await opts.onVideo(r.file, { title: m.title, parts: m.steps.flat().length, steps: m.steps.length, format: format || 'vertical' }).catch(() => null);
     }
     const bom = core.bom(m).map((b) => ({ id: b.id, name: b.name, color: b.color, colorName: colorInfo(b.color).ru, hex: colorInfo(b.color).hex, qty: b.qty }));
     const data = {
       name: m.name || fallbackName || '', title: m.title, parts: m.steps.flat().length, steps: m.steps.length, format: format || 'vertical', mode: md,
-      posterUrl: urls[0], stepUrls: urls.slice(1), videoUrl, bom,
+      posterUrl: urls[0], stepUrls: urls.slice(1), videoUrl, youtubeUrl, bom,
     };
     const next = md === 'picture' ? '«шаги картинками» или «видео»' : md === 'steps' ? '«видео»' : 'собрать что-то ещё';
     // Markdown fallback for hosts that do not render the card: images inline, video as a link.
@@ -407,6 +411,7 @@ export function buildServer(opts) {
       urls[0] && md !== 'steps' ? `![${m.title}](${urls[0]})` : '',
       md === 'steps' ? urls.slice(1).map((u, i) => (u ? `![Шаг ${i + 1}](${u})` : '')).join('\n') : '',
       videoUrl ? `[▶ Видео сборки](${videoUrl})` : '',
+      youtubeUrl ? `[На YouTube](${youtubeUrl})` : '',
     ].filter(Boolean).join('\n');
     return {
       data,

@@ -25,6 +25,7 @@ import { waitUntil } from '@vercel/functions';
 import * as analytics from './_analytics.mjs';
 import * as store from './_store.mjs';
 import * as oauth from './_oauth.mjs';
+import * as youtube from './_youtube.mjs';
 
 const require = createRequire(import.meta.url);
 const core = require('../lib/core.cjs');
@@ -229,15 +230,35 @@ export default async function handler(req, res) {
   const log = (extra) => console.log(JSON.stringify({ ev: 'mcp', user: user.slice(0, 8), what, args: args.length ? args : undefined, ms: Date.now() - t0, ua, ...extra }));
   const client = analytics.clientOf(ua, body);
   let newUser = false;
+  // OAuth accounts ("a" + 24 hex) are sent in full: the sign-in server uses the same id, so sign-up
+  // and tool calls of one person join up in Amplitude. Legacy key users stay a short hash prefix.
+  const userId = user === 'owner' ? 'owner' : user.startsWith('a') ? user : user.slice(0, 13);
   const track = (status, payload, error) => {
-    // OAuth accounts ("a" + 24 hex) are sent in full: the sign-in server uses the same id, so sign-up
-    // and tool calls of one person join up in Amplitude. Legacy key users stay a short hash prefix.
-    const userId = user === 'owner' ? 'owner' : user.startsWith('a') ? user : user.slice(0, 13);
     const p = analytics.send(analytics.events({ userId, msgs, ua, client, status, ms: Date.now() - t0, payload, error, newUser }));
     try { waitUntil(p); } catch { /* not on Vercel: the promise just runs */ }
   };
   const hasCalls = msgs.some((m) => m && m.method === 'tools/call');
   const stateful = needsState(msgs);
+  // Rendered films go to the owner's YouTube channel too (when configured). The card gets a link
+  // only if this exact film is already there; a new one is uploaded after the reply (the mp4 is
+  // copied out of the request's temp dir first, since that dir is deleted when the call ends).
+  const ytUsers = String(process.env.YOUTUBE_USERS || 'owner').split(',').map((s) => s.trim()).filter(Boolean);
+  const onVideo = youtube.enabled && (ytUsers.includes('*') || ytUsers.includes(user)) ? async (file, meta) => {
+    const sha = youtube.sha1File(file);
+    const known = await youtube.knownVideo(sha);
+    if (known) return known.url;
+    const keep = path.join(ROOT_TMP, `yt-${sha}.mp4`);
+    fs.copyFileSync(file, keep);
+    const job = youtube.upload(keep, {
+      title: `${meta.title} — сборка LEGO из ${meta.parts} деталей`,
+      description: `Пошаговая сборка: ${meta.steps} шагов, ${meta.parts} деталей. Собрано из своих деталей с помощью «LEGO из моих деталей».\nhttps://github.com/elcodabra/lego-build-inventory\n\nLEGO® is a trademark of the LEGO Group, which does not sponsor or endorse this video.`,
+      tags: ['LEGO', 'лего', 'инструкция', 'MOC', meta.title],
+    }).then((v) => {
+      if (v) analytics.send([{ user_id: userId, event_type: 'video_published', time: Date.now(), platform: 'mcp', event_properties: { target: 'youtube', format: meta.format, steps: meta.steps, parts: meta.parts } }]);
+    }).finally(() => fs.rmSync(keep, { force: true }));
+    try { waitUntil(job); } catch { /* not on Vercel: runs anyway */ }
+    return null;
+  } : null;
 
   try {
     // Quota first (atomic, before any work). Then one attempt = load state, run the tool, save with a
@@ -262,7 +283,7 @@ export default async function handler(req, res) {
         else { fs.mkdirSync(path.join(dir, 'models'), { recursive: true }); fs.mkdirSync(path.join(dir, 'exports'), { recursive: true }); }
         return await core.ctx.run({ dataDir: dir, safe: true, renderer: 'node' }, async () => {
           const { buildServer } = await import('../mcp/tools.mjs');
-          srv = buildServer({ publish, mediaOrigin: MEDIA_ORIGIN });
+          srv = buildServer({ publish, mediaOrigin: MEDIA_ORIGIN, onVideo });
           transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
           await srv.connect(transport);
           const r = await transport.handleRequest(webRequest(req, body), { parsedBody: body });

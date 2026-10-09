@@ -216,3 +216,39 @@ export async function heartbeat() {
   await redis(['SET', `${NS}:heartbeat`, new Date().toISOString()]);
   return redis(['DBSIZE']);
 }
+
+// ---------------------------------------------------------------- YouTube copies of build videos
+// sha1(mp4) -> { id, url } of the copy on the owner's channel (kept for good). A short "uploading"
+// claim stops two instances uploading the same video; a per-day counter keeps under the API cap.
+const memYt = new Map();
+export async function youtubeFor(sha) {
+  if (backend !== 'redis') return memYt.get(sha) || null;
+  const v = await redis(['GET', `${NS}:yt:${sha}`]);
+  return v ? JSON.parse(v) : null;
+}
+export async function rememberYoutube(sha, info) {
+  if (backend !== 'redis') { memYt.set(sha, info); return; }
+  await redis(['SET', `${NS}:yt:${sha}`, JSON.stringify(info)]);
+  await redis(['DEL', `${NS}:yt-lock:${sha}`]);
+}
+const CLAIM = `if redis.call('SET', KEYS[1], '1', 'NX', 'EX', 600) == false then return 0 end
+local n = redis.call('INCR', KEYS[2])
+redis.call('EXPIRE', KEYS[2], 172800)
+if n > tonumber(ARGV[1]) then redis.call('DECR', KEYS[2]); redis.call('DEL', KEYS[1]); return 0 end
+return 1`;
+const memClaims = new Set();
+const memYtCount = new Map();
+export async function claimYoutubeSlot(sha, dailyMax) {
+  const day = new Date().toISOString().slice(0, 10);
+  if (backend !== 'redis') {
+    if (memClaims.has(sha) || (memYtCount.get(day) || 0) >= dailyMax) return false;
+    memClaims.add(sha); memYtCount.set(day, (memYtCount.get(day) || 0) + 1); return true;
+  }
+  return (await redis(['EVAL', CLAIM, '2', `${NS}:yt-lock:${sha}`, `${NS}:yt-count:${day}`, String(dailyMax)])) === 1;
+}
+export async function releaseYoutubeSlot(sha) {
+  const day = new Date().toISOString().slice(0, 10);
+  if (backend !== 'redis') { memClaims.delete(sha); memYtCount.set(day, Math.max(0, (memYtCount.get(day) || 0) - 1)); return; }
+  await redis(['DEL', `${NS}:yt-lock:${sha}`]);
+  await redis(['DECR', `${NS}:yt-count:${day}`]);
+}
