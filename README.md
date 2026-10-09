@@ -40,12 +40,13 @@ On first launch the MCP server runs `npm install` and fetches Chromium for Playw
 
 ### ChatGPT (web, developer mode)
 
-**Quickest: the hosted server.** Open https://lego-mcp.vercel.app, copy your personal connector URL (it contains your own key: keep it, it is not stored and cannot be recovered), then:
+**Quickest: the hosted server** at `https://lego-mcp.vercel.app/mcp`, with sign-in (OAuth 2.1):
 
-1. ChatGPT → Settings → Apps → Advanced → **Developer mode** → Create app, URL = your link, Authentication: No Auth.
-2. Claude → Settings → Connectors → Add custom connector, URL = your link.
+1. ChatGPT → Settings → Apps → Create app, URL `https://lego-mcp.vercel.app/mcp`, Authentication: **OAuth**.
+2. Claude → Settings → Connectors → Add custom connector, same URL.
+3. A sign-in window opens (lego-auth.vercel.app): create an account with a passkey (Face ID, Touch ID or device PIN; no password, no e-mail) and press «Разрешить».
 
-Each key is a separate user with its own parts and models. Limits per key per day: 300 tool calls, 10 videos, 40 photos. Pictures and videos are kept for 30 days.
+Your parts and models belong to your account, the same in ChatGPT and Claude. Connected apps can be disconnected at https://lego-auth.vercel.app/account. Limits per account per day: 300 tool calls, 10 videos, 40 photos. Pictures and videos are kept for 30 days.
 
 **Or run your own.** ChatGPT only connects to MCP servers over a public HTTPS URL.
 
@@ -71,12 +72,24 @@ The token in `?key=` is simple protection for personal use. For a public service
 | `STATE_BLOB_TOKEN`, `MEDIA_BLOB_TOKEN` | private store for inventories/models, public store for PNG/mp4 |
 | `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Upstash Redis (Vercel Marketplace, free plan is enough). Users from the Blob store are copied over on first access |
 | `LEGO_MCP_TOKEN` | owner key: no quota |
-| `LEGO_OPEN=1` | anyone can get a key at `/` (each key is its own user, stored under a hash of the key) |
+| `AUTH_ISSUER`, `MCP_RESOURCE`, `AUTH_INTROSPECT_SECRET` | OAuth: the authorization server (`auth/`), this server's canonical resource URL, shared secret for revocation checks |
+| `LEGO_OPEN=1` | legacy, without OAuth: anyone can get a personal key at `/` |
 | `LEGO_QUOTA_CALLS` / `_VIDEO` / `_PHOTO` | daily limits per open key (300 / 10 / 40) |
 | `CRON_SECRET`, `LEGO_MEDIA_DAYS` | daily cron `/api/cleanup` deletes media older than N days (30) |
 | `AMPLITUDE_API_KEY` (`AMPLITUDE_ENDPOINT` for the EU region) | usage analytics, see below |
 
 **Analytics.** With `AMPLITUDE_API_KEY` set, each MCP request sends Amplitude events after the reply: `session_start`, `user_created`, `tool_call` with tool name, client (chatgpt, claude, codex…), duration, status (429 = daily limit), argument names and a few counts (idea, parts, steps). The user id is a hash prefix of the key (`owner` for the owner). Never sent: keys, photos, part lists, model JSON, media URLs.
+
+### Sign-in server (`auth/`)
+
+Our own OAuth 2.1 authorization server in Next.js, deployed separately (https://lego-auth.vercel.app). It implements what the [MCP authorization spec](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization) and the ChatGPT Apps SDK require:
+
+- discovery: `/.well-known/oauth-authorization-server` (+ `openid-configuration`); the MCP server publishes `/.well-known/oauth-protected-resource/mcp` and answers 401 with `WWW-Authenticate: Bearer resource_metadata=…`;
+- clients: Client ID Metadata Documents (ChatGPT's `https://chatgpt.com/oauth/client.json`, Claude Code) fetched with SSRF protection, and dynamic client registration with exact allowed redirects;
+- authorization code + PKCE S256 only, `resource` → token `aud`, `iss` on every authorization response (RFC 9207), refresh tokens rotated with replay detection and a short retry window, code reuse revokes the connection;
+- users sign in with passkeys (WebAuthn); access tokens are ES256 JWTs verified by the MCP server against `/jwks.json`; revocation from the account page reaches the MCP server within 15 s (`/introspect`).
+
+Environment: `AUTH_ISSUER`, `AUTH_RESOURCES`, `AUTH_SIGNING_KEY` (private ES256 JWK), `AUTH_SECRET`, `AUTH_INTROSPECT_SECRET`, `KV_REST_API_URL/TOKEN`. Test: `cd auth && npx next build && node test/e2e.mjs` runs the whole chain (auth server, MCP server, the MCP SDK OAuth client, a real browser with a virtual passkey) plus negative cases: 42 checks.
 
 ## MCP tools
 

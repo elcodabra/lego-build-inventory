@@ -1,0 +1,32 @@
+{
+  "name": "lego-auth",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "OAuth 2.1 authorization server for the LEGO MCP server (passkeys, optional Google). Implements the MCP authorization spec: metadata, CIMD, DCR, PKCE, resource indicators, RFC 9207.",
+  "scripts": {
+    "dev": "next dev -p 3100",
+    "build": "next build",
+    "start": "next start -p 3100",
+    "test": "node test/e2e.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@simplewebauthn/browser": "^14.0.0",
+    "@simplewebauthn/server": "^14.0.3",
+    "@upstash/redis": "^1.39.0",
+    "jose": "^6.2.12",
+    "next": "^16.4.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "undici": "^7.30.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "typescript": "^7.0.2"
+  }
+}

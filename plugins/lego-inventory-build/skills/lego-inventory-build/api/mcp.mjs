@@ -24,6 +24,7 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import { waitUntil } from '@vercel/functions';
 import * as analytics from './_analytics.mjs';
 import * as store from './_store.mjs';
+import * as oauth from './_oauth.mjs';
 
 const require = createRequire(import.meta.url);
 const core = require('../lib/core.cjs');
@@ -42,10 +43,19 @@ const keyOf = (req) => {
   const url = new URL(req.url, 'http://x');
   return (req.headers.authorization || '').replace(/^Bearer\s+/i, '') || url.searchParams.get('key') || '';
 };
-export function userOf(req) {
+// Who is calling: an OAuth access token (account "a<sub>"), the owner key, or (LEGO_OPEN, legacy)
+// a personal key from the old key page. Returns null when nothing valid was presented.
+// OAuth tokens are accepted only in the Authorization header (never in ?key=, which leaks into logs).
+export async function userOf(req) {
   const key = keyOf(req);
   const token = process.env.LEGO_MCP_TOKEN;
   if (token && crypto.timingSafeEqual(sha(key), sha(token))) return 'owner';
+  const bearer = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  if (oauth.enabled && bearer.split('.').length === 3) {
+    const v = await oauth.verify(bearer, oauth.resourceFor(req));
+    return v ? 'a' + sha(v.sub).toString('hex').slice(0, 24) : null;
+  }
+  if (oauth.enabled && key.split('.').length === 3) return null;
   if (process.env.LEGO_OPEN === '1' && /^[A-Za-z0-9_-]{24,128}$/.test(key) && new Set(key).size >= 10) return 'u' + sha(key).toString('hex').slice(0, 24);
   return null;
 }
@@ -129,9 +139,10 @@ function withUserLock(user, fn) {
   return p;
 }
 
-// GET / in a browser: what this is and, in open mode, a fresh personal key with the connector URL.
+// GET / in a browser: what this is and how to connect. With OAuth: just the URL (sign-in happens in
+// ChatGPT/Claude). Legacy open mode without OAuth: a fresh personal key.
 function keyPage(req) {
-  const open = process.env.LEGO_OPEN === '1';
+  const open = process.env.LEGO_OPEN === '1' && !oauth.enabled;
   const host = req.headers['x-forwarded-host'] || req.headers.host || 'lego-mcp.vercel.app';
   const key = crypto.randomBytes(24).toString('base64url');
   const url = `https://${host}/mcp?key=${key}`;
@@ -144,7 +155,13 @@ button{margin-top:8px;padding:8px 16px;border:0;border-radius:999px;background:#
 ol li{margin:6px 0}.muted{color:#656d76;font-size:14px}</style></head><body>
 <h1>🧱 LEGO из моих деталей</h1>
 <p>MCP-сервер: сфотографируй свои детали, получи идеи, что собрать, и пошаговую инструкцию картинками или видео.</p>
-${open ? `<h2>Твоя ссылка для подключения</h2>
+${oauth.enabled ? `<h2>Как подключить</h2>
+<p>Адрес приложения: <code>${esc(oauth.resourceFor(req))}</code></p>
+<ol><li><b>ChatGPT</b>: Settings → Apps → Create app, вставь адрес, Authentication: OAuth.</li>
+<li><b>Claude</b>: Settings → Connectors → Add custom connector, тот же адрес.</li>
+<li>Откроется окно входа: войди ключом доступа (Face ID, Touch ID или PIN) и нажми «Разрешить».</li></ol>
+<p class="muted">Аккаунт и подключённые приложения: <a href="${esc(oauth.ISSUER)}/account">${esc(new URL(oauth.ISSUER).host)}</a>. Лимит в сутки: ${QUOTA.calls} вызовов, ${QUOTA.video} видео, ${QUOTA.photo} фото. Мы считаем анонимную статистику использования (какие инструменты вызываются), без фото, списков деталей и личных данных. Картинки и видео хранятся ${Number(process.env.LEGO_MEDIA_DAYS || 30)} дней.</p>`
+    : open ? `<h2>Твоя ссылка для подключения</h2>
 <input id="u" readonly value="${esc(url)}" onclick="this.select()"><button onclick="navigator.clipboard.writeText(document.getElementById('u').value);this.textContent='Скопировано'">Скопировать</button>
 <p class="muted">Ссылка личная: в ней ключ к твоим деталям и моделям. Сохрани её, мы её не храним и восстановить не сможем. Обновишь страницу — получишь новую, с пустым набором.</p>
 <h2>Как подключить</h2>
@@ -159,8 +176,23 @@ ${open ? `<h2>Твоя ссылка для подключения</h2>
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', '*');
-  res.setHeader('Access-Control-Expose-Headers', 'Mcp-Session-Id');
+  res.setHeader('Access-Control-Expose-Headers', 'Mcp-Session-Id, WWW-Authenticate');
   if (req.method === 'OPTIONS') return res.status(204).end();
+  const u0 = new URL(req.url || '/', 'http://x');
+  // Vercel keeps the original path in req.url; ?wk= is the rewrite's fallback copy of it
+  const reqPath = u0.pathname.startsWith('/.well-known/') ? u0.pathname : u0.searchParams.get('wk') ? `/.well-known/${u0.searchParams.get('wk')}` : u0.pathname;
+  // RFC 9728 protected resource metadata (path-specific and root forms)
+  if (reqPath.startsWith('/.well-known/oauth-protected-resource')) {
+    if (!oauth.enabled) return res.status(404).json({ error: 'oauth not enabled' });
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    return res.status(200).json(oauth.protectedResourceMetadata(oauth.resourceFor(req)));
+  }
+  // Some clients look for the authorization server metadata on the MCP origin: point them over.
+  if (reqPath.startsWith('/.well-known/oauth-authorization-server') || reqPath.startsWith('/.well-known/openid-configuration')) {
+    if (!oauth.enabled) return res.status(404).json({ error: 'oauth not enabled' });
+    res.setHeader('Location', `${oauth.ISSUER}${reqPath.startsWith('/.well-known/openid') ? '/.well-known/openid-configuration' : '/.well-known/oauth-authorization-server'}`);
+    return res.status(307).end();
+  }
   if (req.method === 'GET') {
     // MCP clients open an SSE stream with GET; this stateless server has none, and the spec
     // says to answer 405 then (a 200 makes clients reconnect in a loop). Browsers get a hint.
@@ -174,10 +206,14 @@ export default async function handler(req, res) {
     return res.status(200).json({ name: 'lego-inventory-build', mcp: 'POST /mcp?key=<your key>', open: process.env.LEGO_OPEN === '1' });
   }
   if (req.method !== 'POST') return res.status(405).end();
-  const user = userOf(req);
+  const user = await userOf(req);
   const ua = String(req.headers['user-agent'] || '').slice(0, 60);
   if (!user) {
     console.log(JSON.stringify({ ev: 'unauthorized', ua, hasKey: /[?&]key=/.test(req.url || ''), auth: !!req.headers.authorization }));
+    if (oauth.enabled) {
+      res.setHeader('WWW-Authenticate', oauth.challenge(oauth.resourceFor(req), req.headers.authorization ? 'invalid_token' : undefined));
+      return res.status(401).json({ error: 'unauthorized', error_description: 'sign in: this server uses OAuth' });
+    }
     return res.status(401).json({ error: 'unauthorized: add ?key=<key> to the connector URL' });
   }
 

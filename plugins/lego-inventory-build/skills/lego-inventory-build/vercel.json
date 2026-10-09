@@ -20,6 +20,10 @@
   ],
   "rewrites": [
     {
+      "source": "/.well-known/:path*",
+      "destination": "/api/mcp?wk=:path*"
+    },
+    {
       "source": "/mcp",
       "destination": "/api/mcp"
     },
