@@ -78,7 +78,11 @@ The token in `?key=` is simple protection for personal use. For a public service
 | `CRON_SECRET`, `LEGO_MEDIA_DAYS` | daily cron `/api/cleanup` deletes media older than N days (30) |
 | `AMPLITUDE_API_KEY` (`AMPLITUDE_ENDPOINT` for the EU region) | usage analytics, see below |
 
-**Analytics.** With `AMPLITUDE_API_KEY` set, each MCP request sends Amplitude events after the reply: `session_start`, `user_created`, `tool_call` with tool name, client (chatgpt, claude, codex…), duration, status (429 = daily limit), argument names and a few counts (idea, parts, steps). The user id is a hash prefix of the key (`owner` for the owner). Never sent: keys, photos, part lists, model JSON, media URLs.
+**Analytics** (Amplitude, rules for adding more in `AGENTS.md`). With `AMPLITUDE_API_KEY` set, both servers send events after the reply:
+- MCP server (`platform: mcp`): `session_start`, `user_created`, `tool_call` with tool name, client (chatgpt, claude, codex…), duration, status (429 = daily limit), argument names and a few counts (idea, parts, steps).
+- Sign-in server (`platform: auth`): `client_registered`, `authorize_started` / `authorize_error`, `signup`, `login`, `signup_failed` / `login_failed`, `app_connected` / `app_reconnected`, `consent_denied`, `token_issued`, `token_refreshed`, `token_error`, `app_disconnected`, `passkey_added`, `logout`.
+
+A signed-in user has the same anonymous id in both (`"a"` + 24 hex of sha256 of the account id), so the funnel sign-up → connect → tool calls is one person; the owner key is `owner`. Never sent: tokens, codes, keys, account ids, names, e-mails, IPs, photos, part lists, model JSON, media URLs.
 
 ### Sign-in server (`auth/`)
 

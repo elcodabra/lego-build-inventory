@@ -39,13 +39,19 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ---------------------------------------------------------------- start servers
 const introspectSecret = crypto.randomBytes(24).toString('hex');
-const authEnv = { ...process.env, AUTH_ISSUER: AUTH, AUTH_RESOURCES: RESOURCE, AUTH_SECRET: crypto.randomBytes(32).toString('hex'), AUTH_INTROSPECT_SECRET: introspectSecret, AUTH_REDIRECT_ALLOW: '', AUTH_CIMD_TEST_HOSTS: `localhost:${CIMD_PORT}`, AUTH_CIMD_TEST_CA: fs.readFileSync(path.join(HERE, 'fixtures/cimd-cert.pem'), 'utf8'), AUTH_REFRESH_GRACE_SECONDS: '2', NODE_ENV: 'production', PORT: '3101' };
+// mock Amplitude: both servers send here, the test checks the events and that no secrets leak
+const AMP_PORT = 18897;
+const ampEvents = [];
+const ampRaw = [];
+const amp = http.createServer((q, s) => { let b = ''; q.on('data', (d) => { b += d; }); q.on('end', () => { ampRaw.push(b); try { ampEvents.push(...JSON.parse(b).events); } catch { /* ignore */ } s.end('{"code":200}'); }); }).listen(AMP_PORT);
+const AMP_ENV = { AMPLITUDE_API_KEY: 'test-key', AMPLITUDE_ENDPOINT: `http://127.0.0.1:${AMP_PORT}/2/httpapi` };
+const authEnv = { ...process.env, AUTH_ISSUER: AUTH, AUTH_RESOURCES: RESOURCE, AUTH_SECRET: crypto.randomBytes(32).toString('hex'), AUTH_INTROSPECT_SECRET: introspectSecret, AUTH_REDIRECT_ALLOW: '', AUTH_CIMD_TEST_HOSTS: `localhost:${CIMD_PORT}`, AUTH_CIMD_TEST_CA: fs.readFileSync(path.join(HERE, 'fixtures/cimd-cert.pem'), 'utf8'), AUTH_REFRESH_GRACE_SECONDS: '2', NODE_ENV: 'production', PORT: '3101', ...AMP_ENV };
 delete authEnv.KV_REST_API_URL; delete authEnv.KV_REST_API_TOKEN; delete authEnv.VERCEL;
 const auth = spawn(process.execPath, [req.resolve('next/dist/bin/next', { paths: [AUTH_DIR] }), 'start', '-p', '3101'], { cwd: AUTH_DIR, env: authEnv, stdio: ['ignore', 'pipe', 'pipe'] });
 let authLog = ''; auth.stdout.on('data', (d) => { authLog += d; }); auth.stderr.on('data', (d) => { authLog += d; });
 
-Object.assign(process.env, { VERCEL: '1', AUTH_ACTIVE_CACHE_MS: '0', AUTH_ISSUER: AUTH, MCP_RESOURCE: RESOURCE, AUTH_INTROSPECT_SECRET: introspectSecret, LEGO_MCP_TOKEN: 'owner-key-123' });
-delete process.env.LEGO_OPEN; delete process.env.KV_REST_API_URL; delete process.env.STATE_BLOB_TOKEN; delete process.env.MEDIA_BLOB_TOKEN; delete process.env.AMPLITUDE_API_KEY;
+Object.assign(process.env, { VERCEL: '1', AUTH_ACTIVE_CACHE_MS: '0', ...AMP_ENV, AUTH_ISSUER: AUTH, MCP_RESOURCE: RESOURCE, AUTH_INTROSPECT_SECRET: introspectSecret, LEGO_MCP_TOKEN: 'owner-key-123' });
+delete process.env.LEGO_OPEN; delete process.env.KV_REST_API_URL; delete process.env.STATE_BLOB_TOKEN; delete process.env.MEDIA_BLOB_TOKEN;
 const { default: handler } = await import(path.join(MCP_DIR, 'api/mcp.mjs'));
 const mcp = http.createServer((q, s) => { s.status = (c) => { s.statusCode = c; return s; }; s.json = (o) => { s.setHeader('content-type', 'application/json'); s.end(JSON.stringify(o)); }; handler(q, s); }).listen(18800);
 
@@ -282,6 +288,20 @@ try {
   assert.equal(own.status, 200); ok('owner key still works');
 
   await page.screenshot({ path: path.join(HERE, 'account.png') });
+
+  // ---------------------------------------------------------------- analytics (Amplitude)
+  await sleep(500);
+  const types = ampEvents.reduce((m, e) => ({ ...m, [e.event_type]: (m[e.event_type] || 0) + 1 }), {});
+  console.log('  amplitude events', JSON.stringify(types));
+  for (const t of ['signup', 'login', 'authorize_started', 'app_connected', 'token_issued', 'token_refreshed', 'app_disconnected', 'client_registered', 'session_start', 'tool_call']) assert.ok(types[t], 'missing event ' + t);
+  ok('sign-in funnel and tool calls tracked');
+  const authIds = new Set(ampEvents.filter((e) => e.platform === 'auth' && e.user_id).map((e) => e.user_id));
+  const mcpIds = new Set(ampEvents.filter((e) => e.event_type === 'tool_call' && e.user_id !== 'owner').map((e) => e.user_id));
+  assert.ok([...mcpIds].some((id) => authIds.has(id)), 'auth and MCP user ids join up');
+  assert.ok([...authIds].every((id) => /^a[0-9a-f]{24}$/.test(id))); ok('same anonymous user id in the sign-in server and the MCP server');
+  const raw = ampRaw.join('\n');
+  for (const secret of [p1.savedTokens.access_token, p1.savedTokens.refresh_token, cb.searchParams.get('code'), 'Тестовый строитель', claims.sub]) assert.ok(!raw.includes(secret), 'leaked: ' + String(secret).slice(0, 12));
+  ok('no tokens, codes, account ids or names in analytics');
   console.log('oauth e2e passed');
 } catch (e) {
   console.error(e);
@@ -290,6 +310,6 @@ try {
 } finally {
   await browser.close();
   auth.kill();
-  mcp.close(); cimd.close();
+  mcp.close(); cimd.close(); amp.close();
   setTimeout(() => process.exit(process.exitCode || 0), 200);
 }

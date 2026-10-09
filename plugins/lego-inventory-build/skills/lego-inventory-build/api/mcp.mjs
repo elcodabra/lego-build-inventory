@@ -230,7 +230,10 @@ export default async function handler(req, res) {
   const client = analytics.clientOf(ua, body);
   let newUser = false;
   const track = (status, payload, error) => {
-    const p = analytics.send(analytics.events({ userId: user === 'owner' ? 'owner' : user.slice(0, 13), msgs, ua, client, status, ms: Date.now() - t0, payload, error, newUser }));
+    // OAuth accounts ("a" + 24 hex) are sent in full: the sign-in server uses the same id, so sign-up
+    // and tool calls of one person join up in Amplitude. Legacy key users stay a short hash prefix.
+    const userId = user === 'owner' ? 'owner' : user.startsWith('a') ? user : user.slice(0, 13);
+    const p = analytics.send(analytics.events({ userId, msgs, ua, client, status, ms: Date.now() - t0, payload, error, newUser }));
     try { waitUntil(p); } catch { /* not on Vercel: the promise just runs */ }
   };
   const hasCalls = msgs.some((m) => m && m.method === 'tools/call');

@@ -1,6 +1,7 @@
 // GET /authorize: validate the request, remember it, then show login/consent (/consent?r=<id>).
 // Errors about the client or redirect_uri are shown here (never redirected, RFC 6749 4.1.2.1).
 import { redirect } from 'next/navigation';
+import { clientKind, track } from '@/lib/analytics';
 import { ClientError } from '@/lib/clients';
 import { parseAuthorize, redirectWith, RedirectableError } from '@/lib/authorize';
 import { rateLimit } from '@/lib/ratelimit';
@@ -18,10 +19,12 @@ export async function GET(req: Request) {
   const params = new URL(req.url).searchParams;
   let id: string;
   try {
-    id = (await parseAuthorize(params)).id;
+    const r = await parseAuthorize(params);
+    id = r.id;
+    track('authorize_started', { client: clientKind(r.clientId, r.clientName), verified: r.verified, cimd: /^https:/.test(r.clientId) });
   } catch (e) {
-    if (e instanceof RedirectableError) return Response.redirect(redirectWith(e.redirectUri, { error: e.code, error_description: e.message, state: e.state }), 302);
-    if (e instanceof ClientError) return page('Не получилось подключить приложение', e.message);
+    if (e instanceof RedirectableError) { track('authorize_error', { error: e.code }); return Response.redirect(redirectWith(e.redirectUri, { error: e.code, error_description: e.message, state: e.state }), 302); }
+    if (e instanceof ClientError) { track('authorize_error', { error: e.code, client_shown_page: true }); return page('Не получилось подключить приложение', e.message); }
     throw e;
   }
   redirect(`/consent?r=${encodeURIComponent(id)}`);

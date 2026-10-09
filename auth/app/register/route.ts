@@ -1,4 +1,5 @@
 // Dynamic client registration (RFC 7591). Public clients only.
+import { clientKind, track } from '@/lib/analytics';
 import { ClientError, registerClient } from '@/lib/clients';
 import { corsPreflight, json, oauthError } from '@/lib/metadata';
 import { rateLimit } from '@/lib/ratelimit';
@@ -9,9 +10,11 @@ export async function POST(req: Request) {
   let body: unknown;
   try { body = await req.json(); } catch { return oauthError('invalid_client_metadata', 'JSON body required'); }
   try {
-    return json(await registerClient(body), 201);
+    const c = await registerClient(body);
+    track('client_registered', { client: clientKind(String(c.client_id), c.client_name), method: 'dcr' });
+    return json(c, 201);
   } catch (e) {
-    if (e instanceof ClientError) return oauthError(e.code, e.message);
+    if (e instanceof ClientError) { track('client_rejected', { error: e.code, kind: 'register' }); return oauthError(e.code, e.message); }
     throw e;
   }
 }

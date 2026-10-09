@@ -1,5 +1,6 @@
 // POST /token: authorization_code (PKCE S256, exact redirect_uri, resource) and refresh_token
 // (rotation with replay detection). Public clients: client_id in the body, no secret.
+import { clientKind, track } from '@/lib/analytics';
 import { getClient } from '@/lib/clients';
 import { RESOURCES, TTL } from '@/lib/config';
 import { equal, pkceS256, validVerifier } from '@/lib/crypto';
@@ -41,6 +42,7 @@ export async function POST(req: Request) {
     if (!code) {
       // RFC 6749 4.1.2 / RFC 9700: a reused code means it leaked; revoke what it produced
       await revokeByUsedCode(codeValue);
+      track('token_error', { error: 'invalid_grant', grant: 'authorization_code' });
       return oauthError('invalid_grant', 'code is invalid, expired or already used');
     }
     if (code.clientId !== clientId) return oauthError('invalid_grant', 'code was issued to another client');
@@ -50,13 +52,14 @@ export async function POST(req: Request) {
     const resource = normalizeResource(f.get('resource')) || code.resource;
     if (resource !== code.resource) return oauthError('invalid_target', 'resource does not match the authorization request');
     if (await isRevoked(code.grantId)) return oauthError('invalid_grant', 'access was revoked');
+    track('token_issued', { grant: 'authorization_code', client: clientKind(clientId) }, code.userId);
     return tokens(code.grantId, code.userId, clientId, code.resource, code.scope);
   }
 
   if (grantType === 'refresh_token') {
     const rtoken = f.get('refresh_token') || '';
     const r = await useRefresh(rtoken);
-    if (!r) return oauthError('invalid_grant', 'refresh token is invalid, expired or already used');
+    if (!r) { track('token_error', { error: 'invalid_grant', grant: 'refresh_token' }); return oauthError('invalid_grant', 'refresh token is invalid, expired or already used'); }
     const g = await kv.get(`grant:${r.grantId}`);
     if (!g || (await isRevoked(r.grantId))) return oauthError('invalid_grant', 'access was revoked');
     if (g.clientId !== clientId) return oauthError('invalid_grant', 'refresh token was issued to another client');
@@ -65,6 +68,7 @@ export async function POST(req: Request) {
     if (r.replayResponse) return json(r.replayResponse); // retry within the grace window: same tokens
     await findOrCreateGrant(g.userId, g.clientId, g.clientName, g.resource, g.scope); // touch lastUsed
     const body = await tokenBody(g.id, g.userId, clientId, g.resource, g.scope, r.family);
+    track('token_refreshed', { client: clientKind(clientId) }, g.userId);
     await rememberRefreshResponse(rtoken, body);
     return json(body);
   }
