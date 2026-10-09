@@ -41,7 +41,11 @@ Object.assign(process.env, {
   YOUTUBE_TOKEN_URL: 'http://127.0.0.1:18896/token', YOUTUBE_UPLOAD_URL: 'http://127.0.0.1:18896/upload',
   AMPLITUDE_API_KEY: 'k', AMPLITUDE_ENDPOINT: 'http://127.0.0.1:18895/2/httpapi',
 });
-for (const k of ['KV_REST_API_URL', 'KV_REST_API_TOKEN', 'STATE_BLOB_TOKEN', 'MEDIA_BLOB_TOKEN', 'AUTH_ISSUER', 'LEGO_OPEN']) delete process.env[k];
+for (const k of ['STATE_BLOB_TOKEN', 'MEDIA_BLOB_TOKEN', 'AUTH_ISSUER', 'LEGO_OPEN']) delete process.env[k];
+// with KV_REST_API_URL set, runs against real Upstash Redis under a throwaway prefix (cleaned up below)
+const prefix = 'legoyt' + Date.now().toString(36);
+if (process.env.KV_REST_API_URL) process.env.LEGO_REDIS_PREFIX = prefix; else { delete process.env.KV_REST_API_URL; delete process.env.KV_REST_API_TOKEN; }
+console.log('  store:', process.env.KV_REST_API_URL ? 'Upstash Redis, prefix ' + prefix : 'in memory');
 const { default: handler } = await import(process.cwd() + '/api/mcp.mjs');
 const srv = http.createServer((q, s) => { s.status = (c) => { s.statusCode = c; return s; }; s.json = (o) => { s.setHeader('content-type', 'application/json'); s.end(JSON.stringify(o)); }; handler(q, s); }).listen(18894);
 const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
@@ -94,6 +98,18 @@ const ev = amp.filter((e) => e.event_type === 'video_published');
 assert.equal(ev.length, 2); assert.equal(ev[0].event_properties.target, 'youtube');
 assert.ok(!JSON.stringify(amp).includes('vid0') && !JSON.stringify(amp).includes('rt-test')); ok('analytics: video_published x2, no video ids or tokens');
 assert.equal(calls.token, 1); ok('one access-token refresh reused for all uploads');
+
+// 6. concurrent renders of one new film: exactly one upload (the claim is atomic)
+if (process.env.KV_REST_API_URL) {
+  const store = await import(process.cwd() + '/api/_store.mjs');
+  const r = await Promise.all(Array.from({ length: 8 }, () => store.claimYoutubeSlot('race-sha', 1000)));
+  assert.equal(r.filter(Boolean).length, 1); ok('8 parallel claims of one film in Redis: exactly 1 wins');
+  // cleanup the throwaway prefix
+  const kv = (cmd) => fetch(process.env.KV_REST_API_URL, { method: 'POST', headers: { authorization: 'Bearer ' + process.env.KV_REST_API_TOKEN }, body: JSON.stringify(cmd) }).then((x) => x.json()).then((x) => x.result);
+  let cur = '0', n = 0;
+  do { const [next, keys] = await kv(['SCAN', cur, 'MATCH', prefix + ':*', 'COUNT', '200']); cur = next; if (keys.length) { await kv(['DEL', ...keys]); n += keys.length; } } while (cur !== '0');
+  ok(`cleaned ${n} test keys`);
+}
 
 await c.close(); srv.close(); g.close(); ampSrv.close();
 console.log('youtube checks passed');
