@@ -111,6 +111,13 @@ if (process.env.PILE) {
   const ppic = await fetch(pcard.structuredContent.posterUrl);
   if (process.env.PILE_OUT) fs.writeFileSync(process.env.PILE_OUT, Buffer.from(await ppic.arrayBuffer()));
   ok(`pile ideas: ${ps.buildable.map((x) => x.idea).join(', ')}; built "${pidea}" (${pcard.structuredContent.parts} parts, ${pcard.structuredContent.steps} steps), picture HTTP ${ppic.status}`);
+  if (process.env.VIDEO) {
+    const tv = Date.now();
+    const vcard = await c.callTool({ name: 'show_build', arguments: { name: pidea, mode: 'video' } }, undefined, { timeout: 300000 });
+    assert.ok(!vcard.isError && vcard.structuredContent.videoUrl, vcard.content && vcard.content[0].text);
+    const vh = await fetch(vcard.structuredContent.videoUrl, { method: 'HEAD' });
+    ok(`video of "${pidea}" in ${((Date.now() - tv) / 1000).toFixed(1)}s, mp4 HTTP ${vh.status}, ${vh.headers.get('content-length')} bytes`);
+  }
 }
 
 // 5. refresh like ChatGPT after an hour

@@ -434,7 +434,15 @@ export function buildServer(opts) {
     }],
   }));
 
-  async function card(m, md, format, fallbackName) {
+  // Film settings: the chat card plays the film at ~400 px wide, so it gets 720p at 24 fps (about
+  // a third of the work of 1080p/30); the download (model_render) keeps full 1080p.
+  const FILM_CHAT = { scale: 2 / 3, fps: 24 };
+  const FILM_FULL = { scale: 1, fps: 30 };
+  // Same model + same settings = same film: the host can remember the URL (opts.videoCache) and
+  // skip the render next time (pressing «Видео» again, or asking for it in a new chat).
+  const filmKey = (m, format, q) => require('node:crypto').createHash('sha1')
+    .update(JSON.stringify({ v: 1, title: m.title, theta: m.theta, phi: m.phi, steps: m.steps, format: format || 'vertical', q })).digest('hex');
+  async function card(m, md, format, fallbackName, quality) {
     const base = String(m.name || fallbackName || 'model').replace(/[^a-z0-9_-]+/gi, '-') + (format === 'horizontal' ? '-16x9' : '');
     // model-only square pictures: the finished model, and for steps one picture per step with
     // earlier parts pale and the new ones outlined (same camera, so they line up when paging)
@@ -450,15 +458,25 @@ export function buildServer(opts) {
     let videoUrl = null;
     let youtubeUrl = null;
     if (md === 'video') {
-      // stage timings go to the server log (Vercel), so slow renders can be traced to a stage
-      const t0 = Date.now();
-      const r = await film.render(m, path.join(exportsDir(), base + '.mp4'), { format });
-      const t1 = Date.now();
-      videoUrl = await fileUrl(r.file);
-      console.log(JSON.stringify({ ev: 'video', frames: r.frames, render_ms: t1 - t0, upload_ms: Date.now() - t1, bytes: fs.statSync(r.file).size }));
-      // the host may copy the film elsewhere (the hosted server: the owner's YouTube channel);
-      // it returns a link only when one already exists, the upload itself runs after the reply
-      if (opts && opts.onVideo) youtubeUrl = await opts.onVideo(r.file, { title: m.title, parts: m.steps.flat().length, steps: m.steps.length, format: format || 'vertical' }).catch(() => null);
+      const q = quality === 'full' ? FILM_FULL : FILM_CHAT;
+      const key = filmKey(m, format, q);
+      const cache = opts && opts.videoCache;
+      const cached = cache ? await cache.get(key).catch(() => null) : null;
+      if (cached) {
+        videoUrl = cached;
+        console.log(JSON.stringify({ ev: 'video', cached: true }));
+      } else {
+        // stage timings go to the server log (Vercel), so slow renders can be traced to a stage
+        const t0 = Date.now();
+        const r = await film.render(m, path.join(exportsDir(), base + (q === FILM_FULL ? '' : '-720') + '.mp4'), { format, ...q });
+        const t1 = Date.now();
+        videoUrl = await fileUrl(r.file);
+        console.log(JSON.stringify({ ev: 'video', frames: r.frames, size: r.width ? `${r.width}x${r.height}` : undefined, render_ms: t1 - t0, upload_ms: Date.now() - t1, bytes: fs.statSync(r.file).size }));
+        if (cache && videoUrl) await cache.set(key, videoUrl).catch(() => {});
+        // the host may copy the film elsewhere (the hosted server: the owner's YouTube channel);
+        // it returns a link only when one already exists, the upload itself runs after the reply
+        if (opts && opts.onVideo) youtubeUrl = await opts.onVideo(r.file, { title: m.title, parts: m.steps.flat().length, steps: m.steps.length, format: format || 'vertical' }).catch(() => null);
+      }
     }
     const bom = core.bom(m).map((b) => ({ id: b.id, name: b.name, color: b.color, colorName: colorInfo(b.color).ru, hex: colorInfo(b.color).hex, qty: b.qty }));
     const data = {
@@ -545,7 +563,7 @@ export function buildServer(opts) {
     _meta: cardMeta,
   }, safe(async (a) => {
     const m = pickModel(a);
-    const c = await card(m, 'video', a.format, a.name);
+    const c = await card(m, 'video', a.format, a.name, 'full');
     const base = String(m.name || a.name || 'model').replace(/[^a-z0-9_-]+/gi, '-') + (a.format === 'horizontal' ? '-16x9' : '');
     const file = path.join(exportsDir(), base + '.mp4');
     const info = { url: c.data.videoUrl, ...(c.data.videoUrl ? {} : { file }) };

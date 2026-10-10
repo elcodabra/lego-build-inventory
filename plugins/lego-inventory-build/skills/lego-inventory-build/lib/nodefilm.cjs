@@ -60,26 +60,36 @@ function ffmpegPath() {
 async function render(model, outFile, opts) {
   const o = opts || {};
   const fps = o.fps || 30;
-  const { film, canvas, ctx } = view(model, o.format);
+  const { film } = view(model, o.format);
+  // scale < 1: the same layout drawn smaller (a chat card shows the film at ~400 px wide, so
+  // 720p looks the same there and costs about half the CPU of 1080p)
+  const k = o.scale && o.scale > 0 && o.scale < 1 ? o.scale : 1;
+  const W = Math.round((film.W * k) / 2) * 2;
+  const H = Math.round((film.H * k) / 2) * 2;
+  const { createCanvas } = canvasLib();
+  const canvas = createCanvas(W, H);
+  const ctx = canvas.getContext('2d');
   fs.mkdirSync(path.dirname(outFile), { recursive: true });
   const n = Math.round(film.duration * fps);
   const ff = spawn(ffmpegPath(), [
-    '-y', '-loglevel', 'error', '-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${film.W}x${film.H}`, '-framerate', String(fps), '-i', '-',
+    '-y', '-loglevel', 'error', '-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${W}x${H}`, '-framerate', String(fps), '-i', '-',
     '-c:v', 'libx264', '-preset', o.preset || 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', outFile,
   ], { stdio: ['pipe', 'ignore', 'pipe'] });
   let err = '';
   ff.stderr.on('data', (d) => { err += d; });
   const failed = new Promise((_, rej) => ff.on('error', (e) => rej(new Error('ffmpeg not found: ' + e.message))));
   for (let i = 0; i < n; i++) {
+    ctx.setTransform(k, 0, 0, k, 0, 0);
     film.draw(ctx, i / fps);
-    const buf = Buffer.from(ctx.getImageData(0, 0, film.W, film.H).data.buffer);
+    // canvas.data() is the raw RGBA buffer without the getImageData copy
+    const buf = typeof canvas.data === 'function' ? Buffer.from(canvas.data()) : Buffer.from(ctx.getImageData(0, 0, W, H).data.buffer);
     if (!ff.stdin.write(buf)) await Promise.race([new Promise((r) => ff.stdin.once('drain', r)), failed]);
     if (o.onProgress && i % 30 === 0) o.onProgress(i, n);
   }
   ff.stdin.end();
   const code = await Promise.race([new Promise((r) => ff.on('close', r)), failed]);
   if (code !== 0) throw new Error('ffmpeg failed: ' + err.trim());
-  return { file: outFile, frames: n, seconds: film.duration };
+  return { file: outFile, frames: n, seconds: film.duration, width: W, height: H };
 }
 
 // Decode an image into RGBA pixels (for photo colour estimation).

@@ -211,6 +211,17 @@ export async function rememberMedia(sha, url, days) {
   await redis(['SET', `${NS}:media:${sha}`, url, 'EX', String(Math.max(1, Math.min(7, days - 7)) * 86400)]);
 }
 
+// Rendered films by model hash (same model + settings = same mp4): URL kept a bit less than
+// the media lifetime, so a repeated «Видео» skips the render.
+export async function filmUrlFor(key) {
+  if (backend !== 'redis') return null;
+  return redis(['GET', `${NS}:film:${key}`]);
+}
+export async function rememberFilm(key, url, days) {
+  if (backend !== 'redis') return;
+  await redis(['SET', `${NS}:film:${key}`, url, 'EX', String(Math.max(1, Math.min(7, days - 7)) * 86400)]);
+}
+
 // Free Upstash databases unused for 30 days get archived: the daily cron writes this heartbeat.
 export async function heartbeat() {
   if (backend !== 'redis') return null;

@@ -283,7 +283,7 @@ export default async function handler(req, res) {
         else { fs.mkdirSync(path.join(dir, 'models'), { recursive: true }); fs.mkdirSync(path.join(dir, 'exports'), { recursive: true }); }
         return await core.ctx.run({ dataDir: dir, safe: true, renderer: 'node' }, async () => {
           const { buildServer } = await import('../mcp/tools.mjs');
-          srv = buildServer({ publish, mediaOrigin: MEDIA_ORIGIN, onVideo });
+          srv = buildServer({ publish, mediaOrigin: MEDIA_ORIGIN, onVideo, videoCache: MEDIA ? { get: (k) => store.filmUrlFor(k), set: (k, u) => store.rememberFilm(k, u, MEDIA_DAYS) } : null });
           transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
           await srv.connect(transport);
           const r = await transport.handleRequest(webRequest(req, body), { parsedBody: body });

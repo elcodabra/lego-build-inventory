@@ -45,7 +45,7 @@ assert.notEqual(page2.match(/value="([^"]+)"/)[1], url); ok('each visit gets a n
 
 // two open users are isolated
 const a = await connect(key);
-const b = await connect('Zz9-' + 'qwertyuiopasdfghjklzxcvb');
+const b = await connect('Zz9-' + 'qwertyuiopasdfghjklzxcvb' + Date.now().toString(36)); // fresh key per run: the daily quota is per key
 await a.callTool({ name: 'inventory_import', arguments: { data: 'part,color,qty\n3001,red,10\n3003,white,8', replace: true } });
 const bi = (await b.callTool({ name: 'inventory_show', arguments: {} })).content[0].text;
 assert.ok(/empty/i.test(bi) && !bi.includes('3001')); ok('open users do not see each other\'s parts');

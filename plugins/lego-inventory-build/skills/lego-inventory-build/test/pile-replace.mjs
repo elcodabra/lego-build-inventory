@@ -104,6 +104,7 @@ await c.close();
     assert.ok(fs.existsSync(d2 + '/inventory.prev.json'), 'inventory.prev.json saved by the store');
     assert.match(fs.readFileSync(d2 + '/inventory.prev.json', 'utf8'), /3020/);
     ok('the store saves and loads inventory.prev.json with the user state');
+    fs.rmSync(path.join('/tmp/lego/_store', user), { recursive: true, force: true });
   } else console.log('  skip store roundtrip (backend ' + store.backend + ')');
 }
 fs.rmSync(TMP, { recursive: true, force: true });
