@@ -60,7 +60,7 @@ for (const b of s.buildable) {
 }
 ok(`real pile (${s.drawableParts} drawable parts): ${names.join(', ')}`);
 assert.equal(s.buildable[0].idea, 'spaceport', 'the scene that takes the most parts comes first');
-assert.ok(s.buildable[0].usesPercent >= 70, 'spaceport uses ' + s.buildable[0].usesPercent + '%');
+assert.ok(s.buildable[0].usesPercent >= 90, 'spaceport uses ' + s.buildable[0].usesPercent + '%');
 const ship = s.buildable.find((b) => b.idea === 'spaceship');
 assert.ok(ship && ship.parts >= 28, 'spaceship parts ' + (ship && ship.parts));
 // the ship is symmetric enough: wings come in mirrored pairs around the hull centre

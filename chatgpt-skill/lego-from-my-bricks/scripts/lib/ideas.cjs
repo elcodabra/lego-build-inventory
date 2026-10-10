@@ -426,9 +426,60 @@ const GENERATORS = {
       }
       if (!vehicle || !ship) throw new Fail('нужны и машина, и корабль');
       const steps = [];
-      steps.push(...shift(vehicle.steps, -9, 2));
-      steps.push(...shift(ship, 0, 0));
-      notes.splice(0, notes.length, `использовано ${steps.flat().length} деталей: ${vehicle.id === 'rover' ? 'луноход' : 'пожарная машина'} и корабль`);
+      // real footprints, so the models stand in a row with a 2-stud gap between them
+      const box = (st) => {
+        const L = L_();
+        const ps = st.flat().map((s) => L.place(s));
+        const b = L.bounds(ps);
+        return { x0: Math.floor(b.min[0] + 1e-6), x1: Math.ceil(b.max[0] - 1e-6), y0: Math.floor(b.min[1] + 1e-6), y1: Math.ceil(b.max[1] - 1e-6) };
+      };
+      const sb = box(ship);
+      const vb = box(vehicle.steps);
+      const vdx = sb.x0 - 2 - vb.x1;
+      const vdy = Math.round((sb.y0 + sb.y1) / 2 - (vb.y0 + vb.y1) / 2);
+      steps.push(...shift(vehicle.steps, vdx, vdy));
+      steps.push(...ship);
+      // what is left: a launch pad to the right of the ship, then a small yard of spare parts
+      // lying on the ground in front of it (every one of them stands on the ground or a stud)
+      const px = sb.x1 + 2;
+      const py = Math.round((sb.y0 + sb.y1) / 2) - 2;
+      const pad = [];
+      const pc = ['dbg', 'lbg', 'black', 'white', 'blue', 'red'].find((c) => S.n('22889', c) >= 2) ||
+        ['dbg', 'lbg', 'black', 'white', 'blue', 'red'].find((c) => S.n('22889', c) >= 1);
+      let padTop = null;
+      if (pc) {
+        S.take('22889', pc); pad.push({ id: '22889', color: pc, at: [px, py, 0] });
+        if (S.n('22889', pc) > 0 && S.take('22889', pc)) pad.push({ id: '22889', color: pc, at: [px, py + 2, 0] });
+        padTop = 3;
+      }
+      const top = [];
+      if (padTop != null) {
+        const two = pad.length === 2;
+        const cc = ['white', 'lbg', 'yellow', 'red', 'blue', 'dbg', 'black', 'tan'].find((c) => S.n('1744', c) > 0);
+        if (two && cc) {
+          S.take('1744', cc); top.push({ id: '1744', color: cc, at: [px, py, padTop] });
+          const fc = ['white', 'yellow', 'red', 'orange', 'trans'].find((c) => S.n('64647', c) > 0) || S.colors().find((c) => S.n('64647', c) > 0);
+          if (fc) { S.take('64647', fc); top.push({ id: '64647', color: fc, at: [px + 1, py + 1, padTop + 9] }); }
+        }
+      }
+      if (pad.length) steps.push(pad);
+      if (top.length) steps.push(top);
+      // spare parts yard in front of the ship (towards the viewer), on the ground, a row of spare
+      // wheels and beams with a 1-stud gap between them
+      const yard = [];
+      let yx = sb.x0 + 1;
+      const yy = sb.y0 - 6;
+      for (const id of ['55981', '55981', '32316', '42003', '3170']) {
+        const c = S.colors().find((cc) => S.n(id, cc) > 0);
+        if (!c) continue;
+        S.take(id, c);
+        const d = L_().LIB[id];
+        yard.push({ id, color: c, at: [yx, yy, 0] });
+        yx += Math.ceil(d.w) + 1;
+      }
+      if (yard.length) steps.push(yard);
+      const used = steps.flat().length;
+      notes.splice(0, notes.length, `использовано ${used} деталей: ${vehicle.id === 'rover' ? 'луноход' : 'пожарная машина'}, корабль${pad.length ? ', стартовая площадка' : ''}${yard.length ? ' и склад запчастей' : ''}`);
       void parts;
       return steps;
     },
