@@ -66,10 +66,29 @@ async function download(u, hops = 0) {
 async function loadImage(src) {
   const out = await loadImageRaw(src);
   if (out.buf.length > MAX_BYTES) throw new Error('image is too large (max 15 MB)');
+  if (/heic|heif/.test(out.mime)) return heicToJpeg(out);
   if (!/^image\//.test(out.mime)) throw new Error('not an image (JPEG, PNG or WebP expected)');
   const dim = dimensions(out.buf);
   if (dim && dim.w * dim.h > MAX_PIXELS) throw new Error(`image is too large (${dim.w}×${dim.h}, max 40 megapixels)`);
   return out;
+}
+
+// iPhone photos are HEIC. Decode with libheif (wasm, via heic-decode) and re-encode as JPEG so
+// the rest of the pipeline (canvas, Brickognize) sees an ordinary image. The pixel cap is
+// checked on the decoded size before any canvas work.
+async function heicToJpeg(img) {
+  let decode;
+  try { decode = require('heic-decode'); } catch { throw new Error('HEIC is not supported here: export the photo as JPEG'); }
+  let raw;
+  try { raw = await decode({ buffer: img.buf }); } catch (e) { throw new Error('could not read the HEIC photo: ' + e.message); }
+  if (raw.width * raw.height > MAX_PIXELS) throw new Error(`image is too large (${raw.width}×${raw.height}, max 40 megapixels)`);
+  const { createCanvas } = require('@napi-rs/canvas');
+  const c = createCanvas(raw.width, raw.height);
+  const x = c.getContext('2d');
+  const id = x.createImageData(raw.width, raw.height);
+  id.data.set(raw.data);
+  x.putImageData(id, 0, 0);
+  return { buf: c.toBuffer('image/jpeg', 92), mime: 'image/jpeg', name: img.name };
 }
 
 // Width/height from the file header, before decoding (PNG, JPEG, WebP), to refuse decompression bombs.
@@ -212,7 +231,6 @@ async function boxPixels(img, box) {
 async function identify(src, opts) {
   const o = opts || {};
   const img = await loadImage(src);
-  if (/heic|heif/.test(img.mime)) throw new Error('HEIC is not supported: export the photo as JPEG');
   const res = await brickognize(img);
   const box = res.bounding_box || null;
   const candidates = (res.items || []).slice(0, 3).map((it) => {
@@ -271,6 +289,131 @@ async function identify(src, opts) {
 // A photo of many parts: split it into separate parts by background subtraction and connected
 // components, then recognise each crop with Brickognize. Works when parts lie apart on a plain
 // background (touching parts merge into one blob). Returns merged counts plus per-part details.
+// Work surface = largest connected area of the most common colour (quantised). Returns the image
+// cropped to it, or the image unchanged when the surface already fills the frame or is too small
+// to be trusted.
+function cropToSurface(im, createCanvas) {
+  const S = Math.min(1, 160 / Math.max(im.width, im.height));
+  const W = Math.max(1, Math.round(im.width * S));
+  const H = Math.max(1, Math.round(im.height * S));
+  const c = createCanvas(W, H);
+  c.getContext('2d').drawImage(im, 0, 0, W, H);
+  const d = c.getContext('2d').getImageData(0, 0, W, H).data;
+  const q = (i) => ((d[4 * i] >> 4) << 8) | ((d[4 * i + 1] >> 4) << 4) | (d[4 * i + 2] >> 4);
+  const hist = new Map();
+  for (let i = 0; i < W * H; i++) { const k = q(i); hist.set(k, (hist.get(k) || 0) + 1); }
+  let mode = 0; let best = -1;
+  for (const [k, v] of hist) if (v > best) { best = v; mode = k; }
+  const mr = ((mode >> 8) & 15) * 16 + 8; const mg = ((mode >> 4) & 15) * 16 + 8; const mb = (mode & 15) * 16 + 8;
+  const near = new Uint8Array(W * H);
+  for (let i = 0; i < W * H; i++) near[i] = Math.abs(d[4 * i] - mr) + Math.abs(d[4 * i + 1] - mg) + Math.abs(d[4 * i + 2] - mb) < 60 ? 1 : 0;
+  // parts sit on the surface and break it up: fill each row/column gap that is enclosed by
+  // surface on both sides, so the surface is one solid region around the pile
+  const solid = near.slice();
+  for (let y = 0; y < H; y++) {
+    let a = -1; let b = -1;
+    for (let x = 0; x < W; x++) if (near[y * W + x]) { if (a < 0) a = x; b = x; }
+    for (let x = a; a >= 0 && x <= b; x++) solid[y * W + x] = 1;
+  }
+  const lab = new Int32Array(W * H);
+  let bestBox = null; let n = 0;
+  for (let s0 = 0; s0 < W * H; s0++) {
+    if (!solid[s0] || lab[s0]) continue;
+    n++;
+    const st = [s0]; lab[s0] = n;
+    let x0 = W; let y0 = H; let x1 = 0; let y1 = 0; let area = 0;
+    while (st.length) {
+      const p = st.pop(); const px = p % W; const py = (p / W) | 0; area++;
+      if (px < x0) x0 = px; if (px > x1) x1 = px; if (py < y0) y0 = py; if (py > y1) y1 = py;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = px + dx; const ny = py + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const r = ny * W + nx;
+        if (solid[r] && !lab[r]) { lab[r] = n; st.push(r); }
+      }
+    }
+    if (!bestBox || area > bestBox.area) bestBox = { x0, y0, x1, y1, area };
+  }
+  if (!bestBox || bestBox.area < W * H * 0.25) return im;
+  const bw = bestBox.x1 - bestBox.x0 + 1; const bh = bestBox.y1 - bestBox.y0 + 1;
+  if (bw * bh > W * H * 0.92) return im; // the surface already fills the frame
+  const inset = 2; // stay off the table edge
+  const x0 = Math.max(0, (bestBox.x0 + inset) / S); const y0 = Math.max(0, (bestBox.y0 + inset) / S);
+  const x1 = Math.min(im.width, (bestBox.x1 + 1 - inset) / S); const y1 = Math.min(im.height, (bestBox.y1 + 1 - inset) / S);
+  const out = createCanvas(Math.round(x1 - x0), Math.round(y1 - y0));
+  out.getContext('2d').drawImage(im, x0, y0, x1 - x0, y1 - y0, 0, 0, out.width, out.height);
+  return out;
+}
+
+// Split blobs that are much bigger than a typical part (see segment). Mutates lab/boxes: a split
+// blob's box is replaced by one box per core.
+function splitBlobs(edge, lab, boxes, W, H, minArea) {
+  const areas = boxes.map((b) => b.area).filter((a) => a >= minArea).sort((a, b) => a - b);
+  if (!areas.length) return;
+  const typical = areas[Math.floor(areas.length / 2)];
+  const bigLimit = Math.max(typical * 3, W * H * 0.02);
+  const out = [];
+  boxes.forEach((b, idx) => {
+    const id = idx + 1;
+    if (b.area < bigLimit) { out.push(b); return; }
+    // pixels of this blob
+    const px = [];
+    for (let y = b.y0; y <= b.y1; y++) for (let x = b.x0; x <= b.x1; x++) if (lab[y * W + x] === id) px.push(y * W + x);
+    const inBlob = new Uint8Array(W * H);
+    for (const p of px) inBlob[p] = 1;
+    // distance to the blob edge (4-neighbour BFS from the boundary). Strong colour edges inside
+    // the blob count as boundary too, so two touching parts of different colours separate.
+    const dist = new Int32Array(W * H).fill(-1);
+    const q = [];
+    for (const p of px) {
+      const x = p % W; const y = (p / W) | 0;
+      if (edge[p] || x === 0 || y === 0 || x === W - 1 || y === H - 1 || !inBlob[p - 1] || !inBlob[p + 1] || !inBlob[p - W] || !inBlob[p + W]) { dist[p] = 0; q.push(p); }
+    }
+    for (let h = 0; h < q.length; h++) {
+      const p = q[h];
+      for (const r of [p - 1, p + 1, p - W, p + W]) if (r >= 0 && r < W * H && inBlob[r] && dist[r] < 0) { dist[r] = dist[p] + 1; q.push(r); }
+    }
+    let maxD = 0;
+    for (const p of px) if (dist[p] > maxD) maxD = dist[p];
+    // try deeper and deeper cores; keep the depth that gives the most sizable cores
+    const coreMin = Math.max(4, minArea * 0.15);
+    let bestCores = null;
+    for (let t = 1; t <= Math.min(maxD - 1, 14); t++) {
+      const seen = new Uint8Array(W * H);
+      const cores = [];
+      for (const p of px) {
+        if (dist[p] < t || seen[p]) continue;
+        const st = [p]; seen[p] = 1; const members = [];
+        while (st.length) {
+          const s = st.pop(); members.push(s);
+          for (const r of [s - 1, s + 1, s - W, s + W]) if (r >= 0 && r < W * H && inBlob[r] && dist[r] >= t && !seen[r]) { seen[r] = 1; st.push(r); }
+        }
+        if (members.length >= coreMin) cores.push(members);
+      }
+      if (!bestCores || cores.length > bestCores.length) bestCores = cores;
+    }
+    if (!bestCores || bestCores.length < 2) { out.push(b); return; }
+    // grow cores back over the blob (multi-source BFS)
+    const owner = new Int32Array(W * H).fill(-1);
+    const gq = [];
+    bestCores.forEach((members, k) => { for (const p of members) { owner[p] = k; gq.push(p); } });
+    for (let h = 0; h < gq.length; h++) {
+      const p = gq[h];
+      for (const r of [p - 1, p + 1, p - W, p + W]) if (r >= 0 && r < W * H && inBlob[r] && owner[r] < 0) { owner[r] = owner[p]; gq.push(r); }
+    }
+    const sub = bestCores.map(() => ({ x0: W, y0: H, x1: 0, y1: 0, area: 0 }));
+    for (const p of px) {
+      const k = owner[p];
+      if (k < 0) continue;
+      const s = sub[k]; const x = p % W; const y = (p / W) | 0;
+      s.area++; if (x < s.x0) s.x0 = x; if (x > s.x1) s.x1 = x; if (y < s.y0) s.y0 = y; if (y > s.y1) s.y1 = y;
+    }
+    out.push(...sub.filter((s) => s.area > 0));
+  });
+  boxes.length = 0;
+  boxes.push(...out);
+}
+
 async function segment(img, opts) {
   const o = opts || {};
   const { loadImage, createCanvas } = require('@napi-rs/canvas');
@@ -283,6 +426,11 @@ async function segment(img, opts) {
     small.getContext('2d').drawImage(im, 0, 0, small.width, small.height);
     im = small;
   }
+  // The background is taken from the photo border. When the shot also shows the floor, a rug or
+  // feet past the table edge, that border is not the table, the whole table becomes "foreground"
+  // and the pile is one blob. So first find the work surface (the largest even area of the most
+  // common colour) and crop to it.
+  im = cropToSurface(im, createCanvas);
   const S = Math.min(1, 480 / Math.max(im.width, im.height));
   const W = Math.round(im.width * S);
   const H = Math.round(im.height * S);
@@ -329,6 +477,24 @@ async function segment(img, opts) {
     fg[i] = chroma > 16 || lighter > 10 || darker > 60 ? 1 : 0;
   }
   // close small gaps (edges drawn in the part colour), then label components
+  // Strong colour edges between two foreground pixels. Not cut here (a white brick's top and
+  // its grey side would fall apart); splitBlobs uses them only inside blobs that are too big to
+  // be one part, where they are most likely the border between two touching parts.
+  const edge = new Uint8Array(W * H);
+  if (o.colorCut !== false) {
+    const lum = (i) => d[4 * i] * 0.3 + d[4 * i + 1] * 0.59 + d[4 * i + 2] * 0.11;
+    for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+      const i = y * W + x;
+      if (!fg[i]) continue;
+      for (const r of [i + 1, i + W]) {
+        if (!fg[r]) continue;
+        const dc = Math.abs(d[4 * i] - d[4 * r]) + Math.abs(d[4 * i + 1] - d[4 * r + 1]) + Math.abs(d[4 * i + 2] - d[4 * r + 2]);
+        const p = at(i); const pr = at(r);
+        const ch = chromaOf(p, pr, p[0] + p[1] + p[2] || 1, pr[0] + pr[1] + pr[2] || 1);
+        if (dc > 150 && (ch > 40 || Math.abs(lum(i) - lum(r)) > 90)) edge[lum(i) < lum(r) ? i : r] = 1;
+      }
+    }
+  }
   const lab = new Int32Array(W * H);
   const boxes = [];
   let n = 0;
@@ -354,6 +520,11 @@ async function segment(img, opts) {
     boxes.push({ x0, y0, x1, y1, area });
   }
   const minArea = (W * H) * 0.0006;
+  // Touching parts merge into one blob. Split big blobs: erode the mask until thin joins break
+  // into several sizable cores, then grow every core back over its blob (geodesic, so each pixel
+  // goes to the nearest core). Parts that overlap a lot stay together; parts that only touch
+  // along an edge or through a thin cable/axle come apart.
+  splitBlobs(edge, lab, boxes, W, H, minArea);
   if (o.debug) {
     const dc = createCanvas(W, H);
     const dx2 = dc.getContext('2d');
@@ -367,6 +538,7 @@ async function segment(img, opts) {
   }
   const parts = boxes.filter((b) => b.area >= minArea && b.area < W * H * 0.5);
   const max = o.max || 80;
+  if (o.segmentOnly) return { found: parts.length, boxes: parts };
   if (parts.length > max) throw new Error(`found ${parts.length} parts, more than ${max}: photograph fewer parts at once`);
   // crop each part from the full-resolution image with a margin, recognise in small batches
   const crops = parts.map((b) => {
@@ -404,7 +576,6 @@ async function segment(img, opts) {
 
 async function identifyPile(src, opts) {
   const img = await loadImage(src);
-  if (/heic|heif/.test(img.mime)) throw new Error('HEIC is not supported: export the photo as JPEG');
   return segment(img, opts);
 }
 
