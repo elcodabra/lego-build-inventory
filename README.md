@@ -12,7 +12,7 @@ A Skill plus an MCP server for Claude and ChatGPT. It designs LEGO models **only
 sets / CSV / BrickLink                                    ─┘
 ```
 
-Ideas are parametric models: house, tree, mushroom, rocket, robot, tower, heart, pyramid. Each is built from your parts: it picks the largest size that fits, the colours you have, and the part lengths available. Every proposed model passes the check (no overlaps, nothing floating, all parts in the inventory). Alongside the ideas that build now, it lists the ones that are close, with the exact parts missing. On top of the ideas, the agent can design any custom model from the same parts.
+Ideas are parametric models: house, tree, mushroom, rocket, robot, tower, heart, pyramid, fire truck, rover, spaceship, and a spaceport scene (a vehicle plus a ship side by side). The pile-driven ones (spaceship, spaceport) try to use as many of your parts as possible, and ideas are sorted so the one that takes the most parts comes first. Each is built from your parts: it picks the largest size that fits, the colours you have, and the part lengths available. Every proposed model passes the check (no overlaps, nothing floating, all parts in the inventory). Alongside the ideas that build now, it lists the ones that are close, with the exact parts missing. On top of the ideas, the agent can design any custom model from the same parts.
 
 Built on the [siliconbag/lego-build](https://github.com/siliconbag/lego-build) engine (MIT). On top of it this repo adds an inventory, a check against the inventory with substitute suggestions, JSON models, the MCP server, and packaging for Claude Code, claude.ai, Claude Desktop, Codex and ChatGPT.
 

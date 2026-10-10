@@ -273,7 +273,306 @@ function ringWall(S, colors, { W, D, H, z0, door, windowCourse, notes }) {
   return oneColor(S, colors, build, notes, 'стены');
 }
 
+// ------------------------------------------------------------------ "use everything" builder
+// A heightmap over the grid: the top of each cell (in plates) and whether it has a stud there.
+// Parts are dropped onto a flat area with at least one stud under them, so whatever fits from
+// the inventory can be added without overlaps and with every part held.
+const L_ = () => core.LEGO;
+// parts whose pieces stay inside their footprint box (safe for the heightmap), with their height
+function dropInfo(id) {
+  const d = L_().LIB[id];
+  if (!d) return null;
+  if (['4180c01', '3170', '55981', '93594', '3673', '2780', '43093', '35809', '42003', '32316', '2391', '40490', '70646', '22889'].includes(id)) return null;
+  if (!Number.isInteger(d.w) || !Number.isInteger(d.d)) return null;
+  const plates = Math.round(d.h / core.LEGO.PLATE);
+  if (Math.abs(plates * core.LEGO.PLATE - d.h) > 1e-6) return null;
+  // things on top that are not studs (spikes, flames, a cone tip) block the cells above
+  const boxes = core.LEGO.collidersOf(d);
+  const top = Math.max(...boxes.map((b) => b.hi[2]));
+  const blockTop = top > d.h + 1e-6;
+  return { w: d.w, d: d.d, plates, blockTop };
+}
+class HMap {
+  constructor(W, D) { this.W = W; this.D = D; this.h = new Int32Array(W * D); this.s = new Uint8Array(W * D).fill(1); this.parts = []; }
+  at(x, y) { return y * this.W + x; }
+  // can a part with footprint fw x fd sit at (x, y)? -> its z, or -1. With overhang, cells may be
+  // lower than the part (air under the overhanging end), but at least one stud carries it.
+  fits(x, y, fw, fd, needStud = true, overhang = false) {
+    if (x < 0 || y < 0 || x + fw > this.W || y + fd > this.D) return -1;
+    let z = this.h[this.at(x, y)];
+    if (overhang) for (let j = y; j < y + fd; j++) for (let i = x; i < x + fw; i++) z = Math.max(z, this.h[this.at(i, j)]);
+    let stud = false;
+    let held = 0;
+    for (let j = y; j < y + fd; j++) for (let i = x; i < x + fw; i++) {
+      const h = this.h[this.at(i, j)];
+      if (h > z || (!overhang && h !== z)) return -1;
+      if (h === z) { held++; if (this.s[this.at(i, j)]) stud = true; }
+    }
+    if (overhang && z === 0) return -1; // overhang only above something
+    if (overhang && held * 4 < fw * fd) return -1; // at least a quarter of it rests on the model
+    return stud || !needStud ? z : -1;
+  }
+  put(spec, fw, fd, plates) {
+    const p = core.LEGO.place(spec);
+    const [x, y] = spec.at;
+    const z = spec.at[2] + plates;
+    // studs on top of the new part decide where the next layer can hold; a part with things
+    // sticking up (spikes, flames) or open frames blocks its cells for good
+    const info = dropInfo(spec.id);
+    const block = (info && info.blockTop) || ['64450', '1744', '44375b', '64647', '15209'].includes(spec.id) ? 999 : 0;
+    const studs = new Set();
+    for (const s of p.def.studs) if (!s[3]) {
+      const v = [0, 1, 2].map((k) => p.M[k][0] * s[0] + p.M[k][1] * s[1] + p.M[k][2] * s[2] + p.off[k]);
+      studs.add(Math.floor(v[0]) + ',' + Math.floor(v[1]));
+    }
+    for (let j = y; j < y + fd; j++) for (let i = x; i < x + fw; i++) {
+      const st = studs.has(i + ',' + j);
+      // a frame (roll cage) leaves its studded top usable; everything else with a pointy top is closed
+      this.h[this.at(i, j)] = block && !(spec.id === '64450' && st) && !(spec.id === '44375b' && st) && !(spec.id === '1744' && st) ? z + block : z;
+      this.s[this.at(i, j)] = st ? 1 : 0;
+    }
+    this.parts.push(spec);
+    return spec;
+  }
+}
+// candidate parts from the stock: [{ id, color, w, d, plates, n }] (one entry per id+colour)
+function stockList(S, filter) {
+  const out = [];
+  for (const [k, n] of S.m) {
+    if (!(n > 0)) continue;
+    const [id, color] = k.split('|');
+    const info = dropInfo(id);
+    if (info && filter(id, info)) out.push({ id, color, ...info, n });
+  }
+  return out;
+}
+const isPlate = (id, i) => i.plates === 1 && core.LEGO.LIB[id].studs.length > 0 && !['15209', '60474', '30357', '48205', '24299'].includes(id);
+// Fill one layer: every cell of the rectangle at height z gets the biggest plate that fits, in
+// the preferred direction first; plates of the layer's main colour first.
+function fillLayer(S, H, rect, z, dir, mainColors, opts = {}) {
+  const [x0, y0, x1, y1] = rect;
+  const placed = [];
+  const keep = opts.keep || (() => false);
+  for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+    if (H.h[H.at(x, y)] !== z) continue;
+    const cands = stockList(S, (id, i) => isPlate(id, i) && !keep(id, i)).flatMap((c) => {
+      const o = [];
+      for (const r of c.w === c.d ? [0] : [0, 1]) {
+        const fw = r ? c.d : c.w;
+        const fd = r ? c.w : c.d;
+        if (x + fw > x1 || y + fd > y1) continue;
+        if (H.fits(x, y, fw, fd) !== z) continue;
+        const along = dir === 'y' ? fd >= fw : fw >= fd;
+        // big square-ish plates first (fewer pieces, stronger), then the preferred direction, then colour
+        o.push({ ...c, r, fw, fd, score: fw * fd * 10 + Math.min(fw, fd) * 15 + (along ? 5 : 0) + (mainColors.indexOf(c.color) >= 0 ? 40 - 10 * mainColors.indexOf(c.color) : 0) });
+      }
+      return o;
+    }).sort((a, b) => b.score - a.score);
+    const c = cands[0];
+    if (!c) continue;
+    S.take(c.id, c.color);
+    placed.push(H.put({ id: c.id, color: c.color, at: [x, y, z], ...(c.r ? { rot: 1 } : {}) }, c.fw, c.fd, 1));
+  }
+  return placed;
+}
+// Drop one part from the list onto the best flat spot inside rect (closest to the target).
+function dropBest(S, H, ids, rect, target, opts = {}) {
+  const [x0, y0, x1, y1] = rect;
+  let best = null;
+  for (const c of stockList(S, (id) => ids.includes(id))) {
+    for (const r of c.w === c.d ? [0] : [0, 1]) {
+      const fw = r ? c.d : c.w;
+      const fd = r ? c.w : c.d;
+      for (let y = y0; y + fd <= y1; y++) for (let x = x0; x + fw <= x1; x++) {
+        const z = H.fits(x, y, fw, fd, true, !!opts.overhang);
+        if (z < 0 || (opts.minZ != null && z < opts.minZ) || (opts.maxZ != null && z >= opts.maxZ)) continue;
+        if (opts.centerX != null && Math.abs(x + fw / 2 - opts.centerX) > 0.01) continue;
+        const cx = x + fw / 2 - target[0];
+        const cy = y + fd / 2 - target[1];
+        const score = -Math.hypot(cx, cy) + (opts.high ? z * 0.5 : 0) - ids.indexOf(c.id) * 3;
+        if (!best || score > best.score) best = { c, x, y, z, r, fw, fd, score };
+      }
+    }
+  }
+  if (!best) return null;
+  S.take(best.c.id, best.c.color);
+  return H.put({ id: best.c.id, color: best.c.color, at: [best.x, best.y, best.z], ...(best.r ? { rot: 1 } : {}) }, best.fw, best.fd, best.c.plates);
+}
+
 const GENERATORS = {
+  // A scene of several models side by side on the ground: each one stays tidy, and together they
+  // use as much of the pile as possible. The first vehicle that can be built from wheel bricks
+  // (fire truck, else rover), then the spaceship from the plates that are left.
+  spaceport: {
+    title: 'Космодром',
+    about: 'Сцена из нескольких моделей рядом: машина и космический корабль. Берёт максимум деталей',
+    sizes: [{ label: 'сцена' }],
+    theta: 32,
+    phi: 30,
+    build(S, p, notes) {
+      const parts = [];
+      const shift = (steps, dx, dy) => steps.map((st) => st.map((s) => ({ ...s, at: [s.at[0] + dx, s.at[1] + dy, s.at[2]] })));
+      // vehicle first (it needs the special parts), on the left
+      let vehicle = null;
+      for (const [id, size] of [['firetruck', { L: 12 }], ['firetruck', { L: 10 }], ['rover', {}]]) {
+        const snap = S.snap();
+        try { vehicle = { id, steps: GENERATORS[id].build(S, size, notes) }; break; } catch (e) { if (!(e instanceof Fail)) throw e; S.restore(snap); }
+      }
+      // the ship from what is left, on the right
+      let ship = null;
+      {
+        const snap = S.snap();
+        try { ship = GENERATORS.spaceship.build(S, {}, notes); } catch (e) { if (!(e instanceof Fail)) throw e; S.restore(snap); }
+      }
+      if (!vehicle || !ship) throw new Fail('нужны и машина, и корабль');
+      const steps = [];
+      steps.push(...shift(vehicle.steps, -9, 2));
+      steps.push(...shift(ship, 0, 0));
+      notes.splice(0, notes.length, `использовано ${steps.flat().length} деталей: ${vehicle.id === 'rover' ? 'луноход' : 'пожарная машина'} и корабль`);
+      void parts;
+      return steps;
+    },
+  },
+  // A plate-built spaceship that tries to use the whole pile: the hull is laid from every plate
+  // there is (each layer crosswise over the one below, so it locks together), then the deck
+  // gets a cockpit, engines, wings, antennas and whatever else fits. Grows with the pile.
+  spaceship: {
+    title: 'Космический корабль',
+    about: 'Корабль из пластин: корпус слоями, крылья, кабина, двигатели и антенны. Берёт почти все детали',
+    sizes: [{ label: 'из всего' }],
+    theta: 35,
+    phi: 32,
+    build(S, p, notes) {
+      // hull: as wide and long as the plates allow; the nose at y = oy faces the viewer. Layers
+      // step inwards going up (6 wide, 6, 4, 2...), so most plates become hull, not clutter.
+      const plates = stockList(S, isPlate);
+      const area = plates.reduce((a, c) => a + c.w * c.d * c.n, 0);
+      if (area < 32) throw new Fail('мало пластин для корпуса');
+      const W = 4;
+      const len = Math.max(6, Math.min(14, 2 * Math.floor(area / (W * 2 * 2.6))));
+      const ox = 8;
+      const oy = 2;
+      const H = new HMap(W + 16, len + 6);
+      const steps = [];
+      const colors = order(S, ['blue', 'lbg', 'dbg', 'white', 'black', 'red'], 'plate');
+      const hull = [ox, oy, ox + W, oy + len];
+      const cx = ox + W / 2;
+      // long 2-wide plates are the wing spars; the hull is laid from the rest (wide plates first)
+      const spar = (id, i) => Math.min(i.w, i.d) <= 2 && Math.max(i.w, i.d) >= W + 4;
+      // layer 1 along the hull
+      const l1 = fillLayer(S, H, hull, 0, 'y', colors, { keep: spar });
+      if (l1.length < 2) throw new Fail('корпус: не хватило пластин');
+      steps.push(l1);
+      // wings: the longest pairs of plates laid ACROSS the hull at layer 2, sticking out equally on
+      // both sides (one long plate per row), so the wings and the hull lock together
+      const wingRows = [];
+      const spars = stockList(S, (id, i) => isPlate(id, i) && spar(id, i))
+        .sort((a, b) => Math.max(b.w, b.d) - Math.max(a.w, a.d));
+      const wy0 = oy + Math.floor(len / 2) - 1;
+      let wy = wy0;
+      for (const c of spars) {
+        for (let k = 0; k < c.n && wy < oy + len; k++) {
+          const L = Math.max(c.w, c.d);
+          const fd = Math.min(c.w, c.d);
+          if (wy + fd > oy + len) break;
+          const x = Math.round(cx - L / 2);
+          if (H.fits(x, wy, L, fd, true, true) !== 1) break;
+          S.take(c.id, c.color);
+          wingRows.push(H.put({ id: c.id, color: c.color, at: [x, wy, 1], ...(c.w >= c.d ? {} : { rot: 1 }) }, L, fd, 1));
+          wy += fd;
+        }
+      }
+      // layer 2 on the rest of the hull, across (locks layer 1)
+      const l2 = fillLayer(S, H, hull, 1, 'x', colors.slice(1).concat(colors[0]));
+      steps.push(wingRows.concat(l2));
+      const deckZ = 2;
+      // layer 3: the spine along the hull, two studs narrower; then narrower layers on top while
+      // there are plates for them (each one across the one below)
+      const l3 = fillLayer(S, H, [ox + 1, oy + 1, ox + W - 1, oy + len - 1], deckZ, 'y', colors);
+      if (l3.length) steps.push(l3);
+      let topZ = l3.length ? deckZ + 1 : deckZ;
+      for (let inset = 2, dir = 'x'; W - 2 * inset >= 2 && l3.length; inset++, dir = dir === 'x' ? 'y' : 'x') {
+        const rect = [ox + inset, oy + inset, ox + W - inset, oy + len - inset];
+        const lk = fillLayer(S, H, rect, topZ, dir, colors);
+        if (!lk.length) break;
+        steps.push(lk);
+        topZ++;
+      }
+      // mirrored pairs: same part and colour on both sides of the centre line
+      const mirror = (ids, target, opts = {}) => {
+        const snap = S.snap();
+        const hs = [H.h.slice(), H.s.slice(), H.parts.length];
+        const a = dropBest(S, H, ids, [0, 0, Math.floor(cx), H.D], [cx - target[0], target[1]], opts);
+        if (!a) return [];
+        const d = core.LEGO.LIB[a.id];
+        const fw = a.rot ? d.d : d.w;
+        const fd = a.rot ? d.w : d.d;
+        const mx = 2 * cx - a.at[0] - fw;
+        if (S.n(a.id, a.color) > 0 && H.fits(mx, a.at[1], fw, fd, true, !!opts.overhang) === a.at[2]) {
+          S.take(a.id, a.color);
+          // a wedge or rounded corner is mirrored by turning it (rot 1 <-> 3 swaps left and right)
+          const asym = ['48205', '24299', '30357'].includes(a.id);
+          const rot = asym ? ((a.rot || 0) + 1) % 4 : a.rot;
+          const twin = { ...a, at: [mx, a.at[1], a.at[2]] };
+          if (rot) twin.rot = rot; else delete twin.rot;
+          return [a, H.put(twin, fw, fd, Math.round(d.h / core.LEGO.PLATE))];
+        }
+        // no twin: undo, a lone part on one side looks wrong
+        S.restore(snap); H.h = hs[0]; H.s = hs[1]; H.parts.length = hs[2];
+        return [];
+      };
+      const centre = (ids, ty, opts = {}) => dropBest(S, H, ids, [0, 0, H.W, H.D], [cx, oy + ty], { ...opts, centerX: cx });
+      // plates on the wings, in mirrored pairs, one layer at a time (no towers)
+      const wings = [];
+      if (wingRows.length) {
+        const wingEnd = wingRows.reduce((m, s) => Math.max(m, cx - s.at[0]), 0);
+        for (const ids of [['48205'], ['24299'], ['30357']]) wings.push(...mirror(ids, [wingEnd - 1, wy0 + 1], { minZ: 2, maxZ: 3, overhang: true }));
+      }
+      if (wings.length) steps.push(wings);
+      // cockpit up front, cone at the back, the dish mid-ship: all on the centre line
+      const top = [];
+      for (const [ids, ty] of [[['64450', '4345'], 0], [['1744'], len - 3], [['44375b', '60474', '64799'], len * 0.45]]) {
+        const r = centre(ids, ty, { minZ: deckZ, overhang: true });
+        if (r) top.push(r);
+      }
+      if (top.length) steps.push(top);
+      // engines: flames and spikes at the back, brackets on the sides, in mirrored pairs
+      const eng = [];
+      for (const ids of [['64647'], ['15209'], ['44728', '3956']]) eng.push(...mirror(ids, [1, oy + len], { minZ: deckZ }));
+      if (eng.length) steps.push(eng);
+      // leftovers: equal pairs mirrored, singles on the centre line; fill the lowest level first
+      // and never go more than two plates above the deck, so the ship stays a ship
+      const rest = [];
+      for (let z0 = 1; z0 <= deckZ + 2; z0++) {
+        for (let k = 0; k < 40; k++) {
+          const left = stockList(S, () => true).filter((c) => !['64450', '1744', '44375b'].includes(c.id));
+          if (!left.length) break;
+          const pairs = [...new Set(left.filter((c) => c.n >= 2).map((c) => c.id))];
+          let got = pairs.length ? mirror(pairs, [2, oy + len / 2], { minZ: z0, maxZ: z0 + 1, overhang: true }) : [];
+          if (!got.length) {
+            const r = centre([...new Set(left.map((c) => c.id))], len / 2, { minZ: z0, maxZ: z0 + 1, overhang: true });
+            if (r) got = [r];
+          }
+          if (!got.length) break;
+          rest.push(...got);
+        }
+      }
+      // whatever is still left: flat parts only (plates, tiles) as low patches on the model,
+      // close to the middle; tall singles stay out so the ship keeps its shape
+      for (let z0 = 1; z0 <= deckZ + 1; z0++) {
+        for (let k = 0; k < 40; k++) {
+          const left = stockList(S, (id, i) => i.plates === 1 && !['15209'].includes(id));
+          if (!left.length) break;
+          const r = dropBest(S, H, [...new Set(left.map((c) => c.id))], [0, 0, H.W, H.D], [cx, oy + len / 2], { minZ: z0, maxZ: z0 + 1, overhang: true });
+          if (!r) break;
+          rest.push(r);
+        }
+      }
+      for (let i = 0; i < rest.length; i += 10) steps.push(rest.slice(i, i + 10));
+      notes.push(`использовано ${steps.flat().length} деталей`);
+      return steps;
+    },
+  },
   house: {
     title: 'Домик',
     about: 'Домик с дверью, окнами и двускатной крышей из скосов',

@@ -59,4 +59,13 @@ for (const b of s.buildable) {
   assert.deepEqual(core.checkGeometry(core.validateModel(JSON.parse(JSON.stringify(r.model)), b.idea)).problems, []);
 }
 ok(`real pile (${s.drawableParts} drawable parts): ${names.join(', ')}`);
+assert.equal(s.buildable[0].idea, 'spaceport', 'the scene that takes the most parts comes first');
+assert.ok(s.buildable[0].usesPercent >= 70, 'spaceport uses ' + s.buildable[0].usesPercent + '%');
+const ship = s.buildable.find((b) => b.idea === 'spaceship');
+assert.ok(ship && ship.parts >= 28, 'spaceship parts ' + (ship && ship.parts));
+// the ship is symmetric enough: wings come in mirrored pairs around the hull centre
+const sm = ideas.build('spaceship', items, 0).model.steps.flat();
+const wings = sm.filter((p) => p.at[0] < 7 || p.at[0] > 13);
+assert.ok(wings.length >= 2, 'ship has wings');
+ok(`max use: spaceport ${s.buildable[0].parts} parts (${s.buildable[0].usesPercent}%), spaceship ${ship.parts}`);
 console.log('complex parts checks passed');

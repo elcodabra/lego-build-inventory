@@ -1,6 +1,6 @@
 ---
 name: lego-from-my-bricks
-description: Suggests what to build from the user's own LEGO bricks and gives step-by-step build pictures. Use when the user shows photos of their LEGO parts or lists their parts/sets and asks what they can build, wants ideas, instructions or a parts list for a small model (house, tree, rocket, robot, tower, mushroom, heart, pyramid, or a custom one). Triggers — "что собрать из моих деталей", "вот мои лего детали", "сфоткал лего, что можно сделать", "инструкция из моих кубиков", "what can I build with these LEGO bricks", "build ideas from my parts". Not for buying sets, prices or official LEGO instructions.
+description: Suggests what to build from the user's own LEGO bricks and gives step-by-step build pictures. Use when the user shows photos of their LEGO parts or lists their parts/sets and asks what they can build, wants ideas, instructions or a parts list for a small model (house, tree, rocket, robot, tower, mushroom, heart, pyramid, fire truck, rover, spaceship, spaceport scene, or a custom one). Triggers — "что собрать из моих деталей", "вот мои лего детали", "сфоткал лего, что можно сделать", "инструкция из моих кубиков", "what can I build with these LEGO bricks", "build ideas from my parts". Not for buying sets, prices or official LEGO instructions.
 ---
 
 # LEGO from my bricks
