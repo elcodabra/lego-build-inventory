@@ -471,7 +471,7 @@ export function buildServer(opts) {
         const r = await film.render(m, path.join(exportsDir(), base + (q === FILM_FULL ? '' : '-720') + '.mp4'), { format, ...q });
         const t1 = Date.now();
         videoUrl = await fileUrl(r.file);
-        console.log(JSON.stringify({ ev: 'video', frames: r.frames, size: r.width ? `${r.width}x${r.height}` : undefined, render_ms: t1 - t0, draw_ms: r.drawMs, cpus: require('node:os').cpus().length, upload_ms: Date.now() - t1, bytes: fs.statSync(r.file).size }));
+        console.log(JSON.stringify({ ev: 'video', frames: r.frames, skipped: r.skipped, size: r.width ? `${r.width}x${r.height}` : undefined, render_ms: t1 - t0, draw_ms: r.drawMs, cpus: require('node:os').cpus().length, upload_ms: Date.now() - t1, bytes: fs.statSync(r.file).size }));
         if (cache && videoUrl) await cache.set(key, videoUrl).catch(() => {});
         // the host may copy the film elsewhere (the hosted server: the owner's YouTube channel);
         // it returns a link only when one already exists, the upload itself runs after the reply

@@ -79,20 +79,31 @@ async function render(model, outFile, opts) {
   ff.stderr.on('data', (d) => { err += d; });
   const failed = new Promise((_, rej) => ff.on('error', (e) => rej(new Error('ffmpeg not found: ' + e.message))));
   let drawMs = 0;
+  let skipped = 0;
+  let prevSig = null;
+  let buf = null;
   for (let i = 0; i < n; i++) {
-    ctx.setTransform(k, 0, 0, k, 0, 0);
-    const td = Date.now();
-    film.draw(ctx, i / fps);
-    drawMs += Date.now() - td;
-    // canvas.data() is the raw RGBA buffer without the getImageData copy
-    const buf = typeof canvas.data === 'function' ? Buffer.from(canvas.data()) : Buffer.from(ctx.getImageData(0, 0, W, H).data.buffer);
+    // a still frame (the pause between steps, the hold at the end) is the previous frame again:
+    // reuse its pixels instead of drawing the whole scene
+    const sig = film.signature ? film.signature(i / fps) : null;
+    if (sig && sig === prevSig && buf) {
+      skipped++;
+    } else {
+      ctx.setTransform(k, 0, 0, k, 0, 0);
+      const td = Date.now();
+      film.draw(ctx, i / fps);
+      drawMs += Date.now() - td;
+      // canvas.data() is the raw RGBA buffer without the getImageData copy
+      buf = typeof canvas.data === 'function' ? Buffer.from(canvas.data()) : Buffer.from(ctx.getImageData(0, 0, W, H).data.buffer);
+    }
+    prevSig = sig;
     if (!ff.stdin.write(buf)) await Promise.race([new Promise((r) => ff.stdin.once('drain', r)), failed]);
     if (o.onProgress && i % 30 === 0) o.onProgress(i, n);
   }
   ff.stdin.end();
   const code = await Promise.race([new Promise((r) => ff.on('close', r)), failed]);
   if (code !== 0) throw new Error('ffmpeg failed: ' + err.trim());
-  return { file: outFile, frames: n, seconds: film.duration, width: W, height: H, drawMs };
+  return { file: outFile, frames: n, seconds: film.duration, width: W, height: H, drawMs, skipped };
 }
 
 // Decode an image into RGBA pixels (for photo colour estimation).

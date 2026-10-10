@@ -72,5 +72,32 @@ assert.deepEqual([d4.w, d4.h, d4.fps], [1080, 1920, 30], JSON.stringify(d4));
 ok(`download video ${d4.w}x${d4.h} @ ${d4.fps} fps in ${(tFull / 1000).toFixed(1)}s (chat one: ${(tChat / 1000).toFixed(1)}s)`);
 
 await c.close();
+
+// 5. a frame skipped as "still" (same signature as the previous one) is pixel-identical to a real draw
+{
+  const crypto = await import('node:crypto');
+  const { createCanvas } = require('@napi-rs/canvas');
+  const ideas = require('../lib/ideas.cjs');
+  globalThis.window = globalThis.window || globalThis;
+  require('../src/booklet.js');
+  const items = JSON.parse(fs.readFileSync(new URL('./fixtures/pile-table-edge-inventory.json', import.meta.url), 'utf8'));
+  let skips = 0; let wrong = 0; let frames = 0;
+  for (const idea of ['spaceport', 'house']) {
+    const m = ideas.build(idea, idea === 'house' ? [{ id: '3001', color: 'red', qty: 20 }, { id: '3003', color: 'white', qty: 10 }, { id: '3039', color: 'blue', qty: 10 }] : items, 0, { shopping: idea === 'house' }).model;
+    const film = globalThis.window.LEGO.booklet({ title: m.title, theta: m.theta, phi: m.phi, steps: m.steps }, 'vertical');
+    const cv = createCanvas(360, 640); const ctx = cv.getContext('2d');
+    let prevSig = null; let prevHash = null;
+    for (let i = 0; i < Math.round(film.duration * 24); i++) {
+      ctx.setTransform(1 / 3, 0, 0, 1 / 3, 0, 0); film.draw(ctx, i / 24); frames++;
+      const h = crypto.createHash('sha1').update(cv.data()).digest('hex');
+      const sig = film.signature(i / 24);
+      if (sig === prevSig) { skips++; if (h !== prevHash) wrong++; }
+      prevSig = sig; prevHash = h;
+    }
+  }
+  assert.equal(wrong, 0, `${wrong} skipped frames differ from a real draw`);
+  assert.ok(skips > frames * 0.1, 'still frames are found: ' + skips);
+  ok(`${skips} of ${frames} frames are still and reused, all pixel-identical to a real draw`);
+}
 fs.rmSync(TMP, { recursive: true, force: true });
 console.log('video checks passed');

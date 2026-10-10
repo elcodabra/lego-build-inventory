@@ -375,6 +375,28 @@
       ctx.restore();
     }
 
-    return { W, H, duration: DURATION, draw, parts: COUNT, steps: STEPS.length, title: model.title };
+    // Everything the frame at t depends on, rounded to what can show on screen. Two times with the
+    // same signature draw the same picture, so a renderer can reuse the previous frame (the pause
+    // after each step and the hold at the end are still). Conservative: any doubt -> different.
+    // fine enough that a change smaller than a pixel on a 2000 px frame still counts as a change
+    const r3 = (v) => Math.round(v * 1e6);
+    function signature(t) {
+      const cam = camAt(t);
+      const parts = itemsAt(t).map((it) => [r3(it.move[0]), r3(it.move[1]), r3(it.move[2]), r3(it.alpha), r3(it.pale), r3(it.halo)].join(','));
+      // arrows and the callout fade in/out on their own clocks: include the time while one shows
+      let busy = false;
+      for (let k = 0; k < STEPS.length && !busy; k++) {
+        const s0 = stepStart(k);
+        if (t >= s0 && t <= s0 + STEP && STEPS[k].some((spec) => spec.from)) busy = true;
+      }
+      const k = Math.min(STEPS.length - 1, Math.max(0, Math.floor((t - T0) / STEP)));
+      const callout = t >= T0 && t < T_BUILD + 0.35 ? [k, r3(clamp((t - stepStart(k)) / 0.14) * (1 - clamp((t - T_BUILD) / 0.3)))].join(':') : '-';
+      const end = r3(clamp((t - (T_SPIN1 - 0.6)) / 0.5));
+      // the spin: exact angle (the last frames of an ease-out differ by far less than a rounding step)
+      const spin = t < T_BUILD ? 0 : 360 * inOut(clamp((t - T_SPIN0) / (T_SPIN1 - T_SPIN0)));
+      return [r3(cam.scale), cam.target.map(r3).join(','), spin, busy ? 't' + r3(t) : '', callout, end, parts.join(';')].join('|');
+    }
+
+    return { W, H, duration: DURATION, draw, signature, parts: COUNT, steps: STEPS.length, title: model.title };
   };
 })(typeof window !== 'undefined' ? window : globalThis);
