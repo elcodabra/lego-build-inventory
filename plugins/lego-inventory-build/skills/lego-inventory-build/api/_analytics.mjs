@@ -33,7 +33,10 @@ function resultFacts(tool, payload) {
     if (!t || t[0] !== '{') return {};
     const o = JSON.parse(t);
     if (tool === 'idea_build') return { idea: o.name, parts: o.parts, steps: o.steps, ok: o.ok, missing: Array.isArray(o.missing) ? o.missing.length : undefined };
-    if (tool === 'ideas_suggest') return { buildable: (o.buildable || []).length, almost: (o.almost || o.close || []).length };
+    if (tool === 'ideas_suggest') {
+      const b = o.buildable || [];
+      return { buildable: b.length, almost: (o.almost || o.close || []).length, top_idea: b[0] && b[0].idea, top_uses_percent: b[0] && b[0].usesPercent, drawable_parts: o.drawableParts };
+    }
     if (tool === 'parts_from_pile_photo' || tool === 'parts_from_photo') return { recognised: Array.isArray(o.results) ? o.results.length : o.total, added: o.added };
     if (tool === 'inventory_import') return { lines: o.imported, format: o.format };
     if (tool === 'inventory_show') return { total_parts: o.totalParts };

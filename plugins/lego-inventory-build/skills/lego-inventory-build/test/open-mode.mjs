@@ -79,6 +79,9 @@ assert.ok(evts.some((e) => e.event_type === 'tool_call' && e.event_properties.cl
 assert.ok(evts.some((e) => e.event_type === 'user_created')); ok('user_created on a new key');
 const ib = evts.find((e) => e.event_properties.tool === 'idea_build');
 assert.ok(ib && ib.event_properties.idea && ib.event_properties.parts > 0); ok(`idea_build facts: ${ib.event_properties.idea}, ${ib.event_properties.parts} parts`);
+const is = evts.find((e) => e.event_properties.tool === 'ideas_suggest');
+assert.ok(is && is.event_properties.top_idea === idea && is.event_properties.top_uses_percent > 0 && is.event_properties.drawable_parts === 18);
+ok(`ideas_suggest facts: top ${is.event_properties.top_idea} uses ${is.event_properties.top_uses_percent}% of ${is.event_properties.drawable_parts} parts`);
 assert.ok(evts.some((e) => e.event_properties.tool === 'show_build' && e.event_properties.status === 429)); ok('quota hits are tracked (429)');
 const all = JSON.stringify(sent);
 assert.ok(!all.includes(key) && !all.includes('owner-key-123')); ok('no key in analytics');

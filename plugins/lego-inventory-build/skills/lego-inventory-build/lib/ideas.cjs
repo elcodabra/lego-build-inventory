@@ -347,6 +347,10 @@ function stockList(S, filter) {
   return out;
 }
 const isPlate = (id, i) => i.plates === 1 && core.LEGO.LIB[id].studs.length > 0 && !['15209', '60474', '30357', '48205', '24299'].includes(id);
+// How to turn a part so it looks like its own mirror image (x -> -x), per current rot. Found
+// by comparing the real piece outlines; parts not listed look the same when mirrored. A part
+// listed as null is chiral (only a separate left/right part would match), so it gets no twin.
+const MIRROR_ROT = { '24299': [3, 2, 1, 0], '30357': [1, 0, 3, 2], '48205': null };
 // Fill one layer: every cell of the rectangle at height z gets the biggest plate that fits, in
 // the preferred direction first; plates of the layer's main colour first.
 function fillLayer(S, H, rect, z, dir, mainColors, opts = {}) {
@@ -410,7 +414,6 @@ const GENERATORS = {
     theta: 32,
     phi: 30,
     build(S, p, notes) {
-      const parts = [];
       const shift = (steps, dx, dy) => steps.map((st) => st.map((s) => ({ ...s, at: [s.at[0] + dx, s.at[1] + dy, s.at[2]] })));
       // vehicle first (it needs the special parts), on the left
       let vehicle = null;
@@ -480,7 +483,6 @@ const GENERATORS = {
       if (yard.length) steps.push(yard);
       const used = steps.flat().length;
       notes.splice(0, notes.length, `использовано ${used} деталей: ${vehicle.id === 'rover' ? 'луноход' : 'пожарная машина'}, корабль${pad.length ? ', стартовая площадка' : ''}${yard.length ? ' и склад запчастей' : ''}`);
-      void parts;
       return steps;
     },
   },
@@ -556,14 +558,13 @@ const GENERATORS = {
         const a = dropBest(S, H, ids, [0, 0, Math.floor(cx), H.D], [cx - target[0], target[1]], opts);
         if (!a) return [];
         const d = core.LEGO.LIB[a.id];
-        const fw = a.rot ? d.d : d.w;
-        const fd = a.rot ? d.w : d.d;
+        const fw = (a.rot || 0) % 2 ? d.d : d.w;
+        const fd = (a.rot || 0) % 2 ? d.w : d.d;
         const mx = 2 * cx - a.at[0] - fw;
-        if (S.n(a.id, a.color) > 0 && H.fits(mx, a.at[1], fw, fd, true, !!opts.overhang) === a.at[2]) {
+        if (S.n(a.id, a.color) > 0 && MIRROR_ROT[a.id] !== null && H.fits(mx, a.at[1], fw, fd, true, !!opts.overhang) === a.at[2]) {
           S.take(a.id, a.color);
-          // a wedge or rounded corner is mirrored by turning it (rot 1 <-> 3 swaps left and right)
-          const asym = ['48205', '24299', '30357'].includes(a.id);
-          const rot = asym ? ((a.rot || 0) + 1) % 4 : a.rot;
+          // a wedge or rounded corner is mirrored by turning it the right way (see MIRROR_ROT)
+          const rot = MIRROR_ROT[a.id] ? MIRROR_ROT[a.id][a.rot || 0] : a.rot;
           const twin = { ...a, at: [mx, a.at[1], a.at[2]] };
           if (rot) twin.rot = rot; else delete twin.rot;
           return [a, H.put(twin, fw, fd, Math.round(d.h / core.LEGO.PLATE))];
@@ -1158,4 +1159,4 @@ function build(id, inv, size, opts) {
 
 const list = () => Object.entries(GENERATORS).map(([id, g]) => ({ idea: id, title: g.title, about: g.about, sizes: g.sizes.map((s) => s.label) }));
 
-module.exports = { suggest, build, list, GENERATORS, Stock };
+module.exports = { MIRROR_ROT, suggest, build, list, GENERATORS, Stock };

@@ -68,4 +68,19 @@ const sm = ideas.build('spaceship', items, 0).model.steps.flat();
 const wings = sm.filter((p) => p.at[0] < 7 || p.at[0] > 13);
 assert.ok(wings.length >= 2, 'ship has wings');
 ok(`max use: spaceport ${s.buildable[0].parts} parts (${s.buildable[0].usesPercent}%), spaceship ${ship.parts}`);
+// mirrored twins: the turned part really is the mirror image of the original (real outlines)
+{
+  const L = core.LEGO;
+  const pts = (spec) => { const p = L.place(spec); return p.def.pieces.flatMap((pc) => pc.V.map((v) => [0, 1, 2].map((k) => p.M[k][0] * v[0] + p.M[k][1] * v[1] + p.M[k][2] * v[2] + p.off[k]))); };
+  const norm = (a) => { const mx = Math.min(...a.map((q) => q[0])); const my = Math.min(...a.map((q) => q[1])); return [...new Set(a.map((q) => [q[0] - mx, q[1] - my, q[2]].map((n) => n.toFixed(3)).join(',')))].sort().join(' '); };
+  for (const [id, rots] of Object.entries(ideas.MIRROR_ROT)) {
+    for (let r = 0; r < 4; r++) {
+      const mirrored = norm(pts({ id, color: 'red', at: [0, 0, 0], rot: r }).map(([x, y, z]) => [-x, y, z]));
+      const any = [0, 1, 2, 3].filter((r2) => norm(pts({ id, color: 'red', at: [0, 0, 0], rot: r2 })) === mirrored);
+      if (rots === null) assert.deepEqual(any, [], id + ' is chiral');
+      else assert.deepEqual(any, [rots[r]], `${id} rot ${r} mirrors to ${any}`);
+    }
+  }
+  ok('mirrored wedges and rounded plates are true mirror images; the 6×4 wedge gets no fake twin');
+}
 console.log('complex parts checks passed');
