@@ -83,6 +83,17 @@ async function exercise(client, label) {
   const sug = J(await call('ideas_suggest'));
   assert.ok(sug.buildable.length >= 3, 'at least 3 ideas: ' + sug.buildable.map((b) => b.idea));
   ok('ideas_suggest: ' + sug.buildable.map((b) => `${b.idea}(${b.parts})`).join(', '));
+  assert.ok(sug.recommended.startsWith(sug.buildable[0].idea) && /show_build/.test(sug.next) && /never show pictures from the web/.test(sug.next));
+  ok('ideas_suggest recommends the idea that uses the most parts and points to show_build: ' + sug.recommended);
+  const eye = J(await call('inventory_import', { data: 'part,color,qty\n3001,red,1', source: 'Фото IMG_1938, примерный подсчет' }));
+  assert.match(eye.warning, /parts_from_pile_photo/);
+  const typed = J(await call('inventory_import', { data: 'part,color,qty\n3001,red,1' }));
+  assert.equal(typed.warning, undefined);
+  await call('inventory_import', { data: 'part,color,qty\n' + BOX, replace: true });
+  const descs = Object.fromEntries((await client.listTools()).tools.map((t) => [t.name, t.description]));
+  assert.match(descs.lego_photo_guide, /^FALLBACK ONLY/);
+  assert.match(descs.inventory_import, /not for photos/);
+  ok('a list read from a photo by eye gets a warning to use parts_from_pile_photo; tool texts steer photos to the server');
   const built = J(await call('idea_build', { idea: 'house' }));
   assert.equal(built.ok, true, JSON.stringify(built));
   const hp = await call('model_preview', { name: 'house' });

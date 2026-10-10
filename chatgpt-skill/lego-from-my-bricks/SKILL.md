@@ -20,12 +20,12 @@ Check which tools are available first; prefer A.
 ## MCP flow
 
 1. **Parts.**
-   - Photo with many parts → call `parts_from_pile_photo` with the uploaded file (`files`). Do not describe the photo yourself first.
+   - Photo with many parts → call `parts_from_pile_photo` with the uploaded file (`files`). Do not describe the photo yourself first, and never write a parts list by eye with `inventory_import` when the photo can be passed (the server recognises far more parts).
    - Photos with one part each → `parts_from_photo` (`add: true`, `qty` = how many of that part the user has).
    - A text list, a set number → `inventory_import` / `inventory_add_set`.
    - Show the recognised parts as a compact table and ask only about lines marked unsure. Fix with `inventory_update`.
-2. **Ideas.** `ideas_suggest`. Offer 2–4 buildable ideas in one short list (name, size, part count). Mention at most one "almost" idea with what is missing.
-3. **Build.** After the user picks: `idea_build` → `show_build` (mode `picture`). The card shows the model and its parts: answer in one sentence, do not retell parts or steps.
+2. **Ideas.** `ideas_suggest`. Offer 2–4 buildable ideas in one short list (name, size, part count), in the order returned: the first one uses the most of the user's parts. Mention at most one "almost" idea with what is missing.
+3. **Build.** After the user picks: `idea_build` → `show_build` (mode `picture`). The card shows the model and its parts: answer in one sentence, do not retell parts or steps. Never add images from the web or of official sets: only the card, drawn from the user's own parts.
 4. **On request only:** `show_build` mode `steps` (step pictures) or mode `video`. Always use `show_build` for these (it plays the video inside the card); do not use `model_render`/`model_preview`.
 5. **Own design** (the user wants something not in the ideas): read `lego_guide`, design a model JSON from the inventory, `model_check` until ok, `model_save`, `show_build`.
 

@@ -27,11 +27,14 @@ const GUIDE = [
 const PHOTO_GUIDE = fs.readFileSync(path.join(core.ROOT, 'reference/photos.md'), 'utf8');
 
 const INSTRUCTIONS = `LEGO builder that designs models ONLY from parts the user owns.
-Photos: pass the uploaded image FILE to the tools, do not describe it yourself. Many parts on one
+Photos: pass the uploaded image FILE to the tools, do not describe it yourself and do not write a
+parts list by eye (inventory_import is for text lists only). Many parts on one
 photo -> parts_from_pile_photo (the server finds and recognises every part). One part per photo ->
 parts_from_photo. Show the user the resulting list, fix doubts with inventory_update, then
 ideas_suggest -> offer 2-4 ideas -> idea_build -> show_build (picture card in the chat).
 Be brief: the card shows the model and its parts, never retell steps or parts lists in text.
+Show models ONLY with show_build cards drawn from the user's parts: never add pictures from the web
+or other sets (they would not match what the user can build).
 Offer "шаги картинками" (show_build mode=steps) or "видео" (mode=video); make them only on request.
 Only if the file cannot be passed: read the photo yourself per lego_photo_guide and inventory_import.
 Workflow for a custom model: 1) inventory_show (import with inventory_import / inventory_add_set if empty).
@@ -114,7 +117,7 @@ export function buildServer(opts) {
 
   s.registerTool('inventory_import', {
     title: 'Import parts list',
-    description: 'Add parts from text. Formats: CSV "part,color,qty" (colour as key, name or BrickLink id), Rebrickable CSV export ("Part,Color,Quantity"), BrickLink XML, or JSON [{id,color,qty}].',
+    description: 'Add parts from a TEXT list the user gave (not for photos: an uploaded photo goes to parts_from_pile_photo as a file). Formats: CSV "part,color,qty" (colour as key, name or BrickLink id), Rebrickable CSV export ("Part,Color,Quantity"), BrickLink XML, or JSON [{id,color,qty}].',
     inputSchema: {
       data: z.string().max(2_000_000).optional().describe('file contents'),
       text: z.string().max(2_000_000).optional().describe('same as data'),
@@ -132,7 +135,10 @@ export function buildServer(opts) {
     inv.items.push(...r.items);
     inv.sources.push(source || `import ${r.format}`);
     const saved = core.saveInventory(inv);
-    return text({ imported: r.items.length, format: r.format, skippedUnknownColours: r.unknownColors, inventoryLines: saved.items.length });
+    // a list written by eye from a photo is much worse than the server's recognition: say so
+    const fromPhoto = /photo|фото|img_|\.heic|\.jpe?g|\.png/i.test(source || '');
+    return text({ imported: r.items.length, format: r.format, skippedUnknownColours: r.unknownColors, inventoryLines: saved.items.length,
+      ...(fromPhoto ? { warning: 'This list was read from a photo by eye. Pass the uploaded photo file to parts_from_pile_photo (replace=true) instead: the server finds and recognises far more parts.' } : {}) });
   }));
 
   s.registerTool('inventory_add_set', {
@@ -187,7 +193,7 @@ export function buildServer(opts) {
 
   s.registerTool('lego_photo_guide', {
     title: 'How to read parts from photos',
-    description: 'Use this before listing parts from a photo of a pile or tray: how to identify part numbers and colours by eye, and the CSV format for inventory_import.',
+    description: 'FALLBACK ONLY. Do not use when the user uploaded a photo: pass the file to parts_from_pile_photo instead (the server recognises the parts far better than reading them by eye). Use this only if a photo cannot be passed as a file: how to identify part numbers and colours by eye, and the CSV format for inventory_import.',
     annotations: ro,
   }, safe(async () => text(PHOTO_GUIDE)));
 
@@ -225,7 +231,7 @@ export function buildServer(opts) {
 
   s.registerTool('parts_from_pile_photo', {
     title: 'Recognise a pile of parts',
-    description: 'Use this when the user sends a photo with MANY LEGO parts (laid out on a table, a tray, a pile). Pass the uploaded file. The server finds every separate part on the photo, recognises each one (part number + colour) and returns the counts; with add=true they are added to the inventory. Works best when parts do not touch and the background is plain. Takes 5-30 s.',
+    description: 'Use this whenever the user uploads a photo with MANY LEGO parts (laid out on a table, a tray, a pile), before anything else. Pass the uploaded file, do not read the photo yourself. The server finds every separate part on the photo, recognises each one (part number + colour) and returns the counts; with add=true they are added to the inventory. Works best when parts do not touch and the background is plain. Takes 5-30 s.',
     inputSchema: {
       files: z.array(FileObj).optional().describe('uploaded photos (ChatGPT)'),
       images: z.array(z.string()).optional().describe('photos as URLs, file paths, data: URLs or base64'),
@@ -281,7 +287,7 @@ export function buildServer(opts) {
   }, safe(async () => {
     const s = ideas.suggest(core.loadInventory());
     if (!s.drawableParts) return text('Inventory is empty: ask for photos of the parts (parts_from_photo), a parts list (inventory_import) or set numbers (inventory_add_set).');
-    return text({ ...s, next: 'Offer the user 2-4 of these. For the chosen one call idea_build, then model_preview to show it. You can also design a custom model from the same parts.' });
+    return text({ recommended: s.buildable[0] ? `${s.buildable[0].idea} (${s.buildable[0].parts} parts, ${s.buildable[0].usesPercent}% of the pile)` : undefined, ...s, next: 'Offer the user 2-4 of these, in this order (the first uses the most of their parts), with the part count of each. For the chosen one call idea_build, then show_build (picture card). Do not use model_preview / model_render to show it, and never show pictures from the web instead of the card. You can also design a custom model from the same parts.' });
   }));
 
   s.registerTool('idea_build', {
@@ -298,7 +304,7 @@ export function buildServer(opts) {
     const r = ideas.build(idea, inv, size, { shopping: !!allowMissing });
     const saved = core.saveModel({ ...r.model, name: idea });
     const check = core.fullCheck(core.loadModel(saved.name), inv);
-    return text({ name: idea, title: r.model.title, size: r.size, parts: check.parts, steps: check.steps, notes: r.notes, missing: r.missing, ok: check.ok, next: `show_build with name="${idea}" (picture card)` });
+    return text({ name: idea, title: r.model.title, size: r.size, parts: check.parts, steps: check.steps, notes: r.notes, missing: r.missing, ok: check.ok, next: `show_build with name="${idea}" (picture card). Show only this card, no other images.` });
   }));
 
   s.registerTool('model_check', {
