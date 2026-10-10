@@ -299,14 +299,33 @@ function cropToSurface(im, createCanvas) {
   const c = createCanvas(W, H);
   c.getContext('2d').drawImage(im, 0, 0, W, H);
   const d = c.getContext('2d').getImageData(0, 0, W, H).data;
-  const q = (i) => ((d[4 * i] >> 4) << 8) | ((d[4 * i + 1] >> 4) << 4) | (d[4 * i + 2] >> 4);
-  const hist = new Map();
-  for (let i = 0; i < W * H; i++) { const k = q(i); hist.set(k, (hist.get(k) || 0) + 1); }
-  let mode = 0; let best = -1;
-  for (const [k, v] of hist) if (v > best) { best = v; mode = k; }
-  const mr = ((mode >> 8) & 15) * 16 + 8; const mg = ((mode >> 4) & 15) * 16 + 8; const mb = (mode & 15) * 16 + 8;
+  // The surface is the largest SMOOTH region: neighbouring pixels differ little, even when the
+  // light makes one end of the table much darker than the other (a single "most common colour"
+  // splits such a gradient and can pick a textured floor instead). Parquet, rugs and feet are
+  // textured or bounded by strong edges, so they break into small regions.
   const near = new Uint8Array(W * H);
-  for (let i = 0; i < W * H; i++) near[i] = Math.abs(d[4 * i] - mr) + Math.abs(d[4 * i + 1] - mg) + Math.abs(d[4 * i + 2] - mb) < 60 ? 1 : 0;
+  {
+    const rl = new Int32Array(W * H);
+    const diff = (a, b) => Math.abs(d[4 * a] - d[4 * b]) + Math.abs(d[4 * a + 1] - d[4 * b + 1]) + Math.abs(d[4 * a + 2] - d[4 * b + 2]);
+    let n = 0; let bestN = 0; let bestA = 0;
+    for (let s0 = 0; s0 < W * H; s0++) {
+      if (rl[s0]) continue;
+      n++;
+      const st = [s0]; rl[s0] = n; let area = 0;
+      while (st.length) {
+        const p = st.pop(); area++;
+        const px = p % W; const py = (p / W) | 0;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = px + dx; const ny = py + dy;
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+          const r = ny * W + nx;
+          if (!rl[r] && diff(p, r) < 24) { rl[r] = n; st.push(r); }
+        }
+      }
+      if (area > bestA) { bestA = area; bestN = n; }
+    }
+    for (let i = 0; i < W * H; i++) near[i] = rl[i] === bestN ? 1 : 0;
+  }
   // parts sit on the surface and break it up: fill each row/column gap that is enclosed by
   // surface on both sides, so the surface is one solid region around the pile
   const solid = near.slice();
@@ -452,17 +471,67 @@ async function segment(img, opts) {
   const clean = createCanvas(W, H);
   const cx2 = clean.getContext('2d');
   const cd = cx2.createImageData(W, H);
+  // The table may be much darker at one end (light from one side). So the reference is not one
+  // colour but a coarse grid of local medians of table-like pixels (same chroma as the border,
+  // any brightness), smoothed; a cell with too few such pixels takes its neighbours' value.
+  const G = 8;
+  const gw = Math.ceil(W / G); const gh = Math.ceil(H / G);
+  const cells = Array.from({ length: gw * gh }, () => []);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const p = at(y * W + x);
+    const s = p[0] + p[1] + p[2] || 1;
+    if (chromaOf(p, med, s, medS) < 10) cells[((y * gh / H) | 0) * gw + ((x * gw / W) | 0)].push(s);
+  }
+  const ref = new Float32Array(gw * gh).fill(-1);
+  for (let k = 0; k < cells.length; k++) if (cells[k].length > (W * H) / (gw * gh) * 0.2) {
+    const a = cells[k].sort((u, v) => u - v);
+    // upper quantile: grey parts have the table's (neutral) chroma but are darker, the table is
+    // the brightest neutral thing in its neighbourhood
+    ref[k] = a[Math.floor(a.length * 0.8)];
+  }
+  for (let pass = 0; pass < gw + gh; pass++) {
+    let missing = 0;
+    for (let k = 0; k < ref.length; k++) {
+      if (ref[k] >= 0) continue;
+      const gx = k % gw; const gy = (k / gw) | 0; let sum = 0; let n = 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = gx + dx; const ny = gy + dy;
+        if (nx < 0 || ny < 0 || nx >= gw || ny >= gh) continue;
+        const v = ref[ny * gw + nx]; if (v >= 0) { sum += v; n++; }
+      }
+      if (n) ref[k] = -2 - sum / n; else missing++;
+    }
+    for (let k = 0; k < ref.length; k++) if (ref[k] <= -2) ref[k] = -2 - ref[k];
+    if (!missing) break;
+  }
+  // Only an uneven table needs this: when the local table levels differ by less than ~40 per
+  // channel, keep the old single-level rules (they find white parts on a light table better).
+  const levels = [...ref].filter((v) => v >= 0).sort((u, v) => u - v);
+  const spread = levels.length > 4 ? (levels[Math.floor(levels.length * 0.9)] - levels[Math.floor(levels.length * 0.1)]) / 3 : 0;
+  const uneven = spread > (o.unevenAt || 40);
+  if (o.debugLevels) Object.assign(o.debugLevels, { uneven, spread: Math.round(spread) });
+  const localS = (x, y) => { if (!uneven) return medS; const v = ref[((y * gh / H) | 0) * gw + ((x * gw / W) | 0)]; return v >= 0 ? v : medS; };
+  // smooth (bilinear between cell centres) version for the brightness test below
+  const refAt = (gx, gy) => { const v = ref[Math.min(gh - 1, Math.max(0, gy)) * gw + Math.min(gw - 1, Math.max(0, gx))]; return v >= 0 ? v : medS; };
+  const smoothS = (x, y) => {
+    const fx = (x * gw) / W - 0.5; const fy = (y * gh) / H - 0.5;
+    const x0 = Math.floor(fx); const y0 = Math.floor(fy); const tx = fx - x0; const ty = fy - y0;
+    return (refAt(x0, y0) * (1 - tx) + refAt(x0 + 1, y0) * tx) * (1 - ty) + (refAt(x0, y0 + 1) * (1 - tx) + refAt(x0 + 1, y0 + 1) * tx) * ty;
+  };
   for (let i = 0; i < W * H; i++) {
     const p = at(i);
     const s = p[0] + p[1] + p[2] || 1;
-    const keep = chromaOf(p, med, s, medS) < 10 && Math.abs(s - medS) / 3 < 25;
-    const v = keep ? p : med;
+    const ls = localS(i % W, (i / W) | 0);
+    const keep = chromaOf(p, med, s, medS) < 10 && Math.abs(s - ls) / 3 < 25;
+    // parts are replaced by the table colour at the LOCAL brightness, so the blurred reference
+    // follows the light gradient instead of averaging bright and dark ends together
+    const v = keep ? p : uneven ? med.map((m) => Math.min(255, (m * ls) / medS)) : med;
     cd.data[4 * i] = v[0]; cd.data[4 * i + 1] = v[1]; cd.data[4 * i + 2] = v[2]; cd.data[4 * i + 3] = 255;
   }
   cx2.putImageData(cd, 0, 0);
   const bc = createCanvas(W, H);
   const bx = bc.getContext('2d');
-  bx.filter = `blur(${Math.round(Math.max(W, H) / 10)}px)`;
+  bx.filter = `blur(${Math.round(Math.max(W, H) / (uneven ? 16 : 10))}px)`;
   bx.drawImage(clean, 0, 0);
   const b = bx.getImageData(0, 0, W, H).data;
   const fg = new Uint8Array(W * H);
@@ -472,7 +541,10 @@ async function segment(img, opts) {
     const sum = p[0] + p[1] + p[2] || 1;
     const qs = q[0] + q[1] + q[2] || 1;
     const chroma = chromaOf(p, q, sum, qs);
-    const lighter = (sum - qs) / 3;
+    // brightness against the table's local level (upper quantile, follows the light), so the
+    // table between parts is not "lighter than the blurred background"
+    const ts = smoothS(i % W, (i / W) | 0);
+    const lighter = (sum - (uneven ? Math.max(qs, ts) : qs)) / 3;
     const darker = (qs - sum) / 3;
     fg[i] = chroma > 16 || lighter > 10 || darker > 60 ? 1 : 0;
   }
@@ -576,7 +648,49 @@ async function segment(img, opts) {
 
 async function identifyPile(src, opts) {
   const img = await loadImage(src);
-  return segment(img, opts);
+  const o = opts || {};
+  if (o.segmentOnly || o.unevenAt != null) return segment(img, o);
+  // On an evenly lit table one pass is enough. On an uneven one the two background models catch
+  // different parts (the flat one keeps big dark parts whole, the local one finds parts in the
+  // dark end and between others), so run both and keep the one that recognised more parts.
+  const probe = { segmentOnly: true, debugLevels: {} };
+  await segment(img, probe);
+  if (!probe.debugLevels.uneven) return segment(img, o);
+  const tryPass = async (opt) => { try { return await segment(img, opt); } catch (e) { return { error: e.message, parts: [], recognised: 0, found: 0 }; } };
+  const flat = await tryPass({ ...o, unevenAt: 1e9 });
+  const local = await tryPass({ ...o, debug: null });
+  if (flat.error && local.error) throw new Error(local.error);
+  // merge: the pass that recognised more is the base; a part from the other pass is added where
+  // the base recognised nothing (no recognised base part overlaps it much): a spot the base left
+  // empty or could not name. Nothing recognised is counted twice.
+  const [base, extra] = local.recognised >= flat.recognised ? [local, flat] : [flat, local];
+  const inter = (a, b) => Math.max(0, Math.min(a[0] + a[2], b[0] + b[2]) - Math.max(a[0], b[0])) * Math.max(0, Math.min(a[1] + a[3], b[1] + b[3]) - Math.max(a[1], b[1]));
+  // Both passes' recognised parts, best fitting first: a part is kept when no kept part covers
+  // most of it, and a big box that contains several kept parts is dropped (it was a merged
+  // blob of those). Area-wise matching, so a wheel brick found by one pass and a plate under it
+  // found by the other both stay.
+  const area = (b) => b[2] * b[3];
+  const cand = [...base.parts, ...extra.parts].filter((p) => p.id && p.color && p.box)
+    .sort((a2, b2) => area(a2.box) - area(b2.box) || (b2.score || 0) - (a2.score || 0));
+  const kept = [];
+  for (const p of cand) {
+    const ap = area(p.box);
+    // the same part seen by the other pass: nearly the same box
+    if (kept.some((k) => inter(p.box, k.box) > 0.6 * Math.max(ap, area(k.box)))) continue;
+    // a merged blob: covers two or more kept parts almost completely
+    if (kept.filter((k) => inter(p.box, k.box) > 0.8 * area(k.box)).length >= 2) continue;
+    kept.push(p);
+  }
+  const counts = new Map();
+  for (const r of kept) {
+    const k = r.id + '|' + r.color;
+    const v = counts.get(k) || { id: r.id, color: r.color, qty: 0, name: r.name, unsure: 0 };
+    v.qty++;
+    if (!r.confident) v.unsure++;
+    counts.set(k, v);
+  }
+  const items = [...counts.values()].sort((a, b) => a.color.localeCompare(b.color) || a.id.localeCompare(b.id));
+  return { found: Math.max(flat.found, local.found), recognised: kept.length, items, parts: kept, mode: 'merged', passes: { flat: flat.recognised, local: local.recognised } };
 }
 
 module.exports = { identify, identifyPile, rankColors, loadImage };

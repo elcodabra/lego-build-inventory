@@ -84,6 +84,7 @@ if (process.env.PILE) {
   assert.ok(!pr.isError, pr.content[0].text);
   const pj = JSON.parse(pr.content[0].text);
   const drawable = pj.parts.filter((p) => p.drawable).reduce((a, p) => a + p.qty, 0);
+  if (process.env.PILE_JSON) fs.writeFileSync(process.env.PILE_JSON, JSON.stringify(pj, null, 1));
   ok(`pile photo: ${pj.totalParts} parts recognised in ${((Date.now() - t0) / 1000).toFixed(0)}s, ${drawable} usable in models`);
   const ps = JSON.parse((await c.callTool({ name: 'ideas_suggest', arguments: {} })).content[0].text);
   assert.ok(ps.buildable.length > 0, 'no buildable ideas from the pile');

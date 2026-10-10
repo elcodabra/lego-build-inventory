@@ -18,5 +18,19 @@ const assert = require('assert/strict');
   const W = Math.max(...r.boxes.map((b) => b.x1)) + 1; const H = Math.max(...r.boxes.map((b) => b.y1)) + 1;
   const big = r.boxes.filter((b) => (b.x1 - b.x0) * (b.y1 - b.y0) > 0.7 * W * H);
   assert.equal(big.length, 0, 'a single blob covers most of the table');
+  // - a white table lit from one side, parquet above it: the table is the largest SMOOTH region
+  //   (not the most common colour, which picked the floor), and the parts are found against the
+  //   local table brightness (old code: 1 blob on this fixture, the whole table)
+  {
+    const f2 = path.join(__dirname, 'fixtures/pile-white-table.jpg');
+    const lv = {};
+    const r2 = await P.identifyPile(f2, { segmentOnly: true, max: 200, debugLevels: lv });
+    console.log(`  white table, uneven light (spread ${lv.spread}): ${r2.found} parts found`);
+    assert.ok(lv.uneven, 'the light gradient is detected');
+    assert.ok(r2.found >= 50, `expected >= 50 parts on the white table, got ${r2.found}`);
+    const W2 = Math.max(...r2.boxes.map((b) => b.x1)) + 1; const H2 = Math.max(...r2.boxes.map((b) => b.y1)) + 1;
+    const huge = r2.boxes.filter((b) => (b.area || 0) > 0.05 * W2 * H2);
+    assert.equal(huge.length, 0, 'no blob is a big piece of the table: ' + huge.map((b) => b.area).join(','));
+  }
   console.log('pile segmentation checks passed');
 })().catch((e) => { console.error(e.message); process.exit(1); });
