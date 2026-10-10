@@ -80,9 +80,18 @@ if (process.env.PILE) {
   const b64 = fs.readFileSync(process.env.PILE).toString('base64');
   const mime = /\.heic$/i.test(process.env.PILE) ? 'image/heic' : 'image/jpeg';
   const t0 = Date.now();
-  const pr = await c.callTool({ name: 'parts_from_pile_photo', arguments: { images: [`data:${mime};base64,${b64}`], replace: true } });
+  // an earlier list "by eye" (what ChatGPT did before): the photo must replace it, not add to it
+  await c.callTool({ name: 'inventory_import', arguments: { data: 'part,color,qty\n3020,black,50\n3004,red,9', source: 'Фото, примерный подсчет' } });
+  const pr = await c.callTool({ name: 'parts_from_pile_photo', arguments: { files: [{ download_url: `data:${mime};base64,${b64}`, file_id: 'file_test', mime_type: mime }] } });
   assert.ok(!pr.isError, pr.content[0].text);
   const pj = JSON.parse(pr.content[0].text);
+  const inv1 = JSON.parse((await c.callTool({ name: 'inventory_show', arguments: {} })).content[0].text);
+  assert.equal(pj.mode, 'replace'); assert.ok(pj.replacedPrevious, 'says the old list was replaced');
+  assert.equal(inv1.totalParts, pj.totalParts, 'the inventory is exactly the photo');
+  const un = JSON.parse((await c.callTool({ name: 'inventory_undo', arguments: {} })).content[0].text);
+  assert.ok(un.totalParts >= 59, 'undo brings the old list back');
+  await c.callTool({ name: 'inventory_undo', arguments: {} });
+  ok(`photo replaced the 59-part list by eye (${pj.totalParts} parts now), inventory_undo swaps back and forth`);
   const drawable = pj.parts.filter((p) => p.drawable).reduce((a, p) => a + p.qty, 0);
   if (process.env.PILE_JSON) fs.writeFileSync(process.env.PILE_JSON, JSON.stringify(pj, null, 1));
   ok(`pile photo: ${pj.totalParts} parts recognised in ${((Date.now() - t0) / 1000).toFixed(0)}s, ${drawable} usable in models`);
