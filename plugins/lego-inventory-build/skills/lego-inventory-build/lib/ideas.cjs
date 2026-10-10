@@ -427,7 +427,13 @@ const GENERATORS = {
         const snap = S.snap();
         try { ship = GENERATORS.spaceship.build(S, {}, notes); } catch (e) { if (!(e instanceof Fail)) throw e; S.restore(snap); }
       }
-      if (!vehicle || !ship) throw new Fail('нужны и машина, и корабль');
+      // the ship carries the scene; the vehicle is a bonus (only one wheel brick: no vehicle,
+      // the spare wheels and the launch pad still make it a spaceport)
+      if (!ship) throw new Fail('нужен корабль');
+      if (!vehicle && !S.shopping) {
+        const has = (id) => S.colors().some((c) => S.n(id, c) > 0);
+        if (!has('22889') && !has('1744')) throw new Fail('для космодрома нужна машина или стартовая площадка');
+      }
       const steps = [];
       // real footprints, so the models stand in a row with a 2-stud gap between them
       const box = (st) => {
@@ -437,10 +443,12 @@ const GENERATORS = {
         return { x0: Math.floor(b.min[0] + 1e-6), x1: Math.ceil(b.max[0] - 1e-6), y0: Math.floor(b.min[1] + 1e-6), y1: Math.ceil(b.max[1] - 1e-6) };
       };
       const sb = box(ship);
-      const vb = box(vehicle.steps);
-      const vdx = sb.x0 - 2 - vb.x1;
-      const vdy = Math.round((sb.y0 + sb.y1) / 2 - (vb.y0 + vb.y1) / 2);
-      steps.push(...shift(vehicle.steps, vdx, vdy));
+      if (vehicle) {
+        const vb = box(vehicle.steps);
+        const vdx = sb.x0 - 2 - vb.x1;
+        const vdy = Math.round((sb.y0 + sb.y1) / 2 - (vb.y0 + vb.y1) / 2);
+        steps.push(...shift(vehicle.steps, vdx, vdy));
+      }
       steps.push(...ship);
       // what is left: a launch pad to the right of the ship, then a small yard of spare parts
       // lying on the ground in front of it (every one of them stands on the ground or a stud)
@@ -482,7 +490,7 @@ const GENERATORS = {
       }
       if (yard.length) steps.push(yard);
       const used = steps.flat().length;
-      notes.splice(0, notes.length, `использовано ${used} деталей: ${vehicle.id === 'rover' ? 'луноход' : 'пожарная машина'}, корабль${pad.length ? ', стартовая площадка' : ''}${yard.length ? ' и склад запчастей' : ''}`);
+      notes.splice(0, notes.length, `использовано ${used} деталей: ${vehicle ? (vehicle.id === 'rover' ? 'луноход, ' : 'пожарная машина, ') : ''}корабль${pad.length ? ', стартовая площадка' : ''}${yard.length ? ' и склад запчастей' : ''}`);
       return steps;
     },
   },

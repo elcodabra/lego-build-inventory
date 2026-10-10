@@ -68,6 +68,18 @@ const sm = ideas.build('spaceship', items, 0).model.steps.flat();
 const wings = sm.filter((p) => p.at[0] < 7 || p.at[0] > 13);
 assert.ok(wings.length >= 2, 'ship has wings');
 ok(`max use: spaceport ${s.buildable[0].parts} parts (${s.buildable[0].usesPercent}%), spaceship ${ship.parts}`);
+// only one wheel brick: no vehicle, but the spaceport (ship + launch pad + spare parts) is still
+// buildable and still the idea that takes the most parts
+{
+  let oneWheel = false;
+  const items2 = items.filter((x) => (x.id === '4180c01' ? (oneWheel ? false : (oneWheel = true)) : true)).map((x) => (x.id === '4180c01' ? { ...x, qty: 1 } : x));
+  const s2 = ideas.suggest(items2);
+  assert.equal(s2.buildable[0].idea, 'spaceport', 'spaceport without a vehicle: ' + s2.buildable.map((b) => b.idea).join(','));
+  const r2 = ideas.build('spaceport', items2, 0);
+  assert.deepEqual(r2.missing, []);
+  assert.match(r2.notes[0], /^использовано \d+ деталей: корабль/);
+  ok(`one wheel brick: spaceport without a vehicle, ${s2.buildable[0].parts} parts (${s2.buildable[0].usesPercent}%)`);
+}
 // mirrored twins: the turned part really is the mirror image of the original (real outlines)
 {
   const L = core.LEGO;
