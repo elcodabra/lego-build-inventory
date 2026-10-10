@@ -1,6 +1,6 @@
 /*
  * parts-sheet.js
- * Inventory page of every part in LEGO.LIB, in the booklet's style. 1920 x 1500.
+ * Inventory page of every part in LEGO.LIB, in the booklet's style. 1920 wide, as tall as needed.
  * Open index.html?view=parts to see it.
  */
 (function (root) {
@@ -8,10 +8,14 @@
 
   const LEGO = root.LEGO;
   const W = 1920;
-  const H = 1500;
   const FONT = 'Inter, "Helvetica Neue", Helvetica, Arial, sans-serif';
   const INK = '#1F2328';
-  const COLS = 8;
+  const COLS = 10;
+  // the page grows with the library: rows of fixed-height tiles
+  const TILE_H = 170;
+  const GAP = 16;
+  const Y0 = 200;
+  const H = Y0 + Math.ceil(LEGO.ORDER.length / COLS) * (TILE_H + GAP) - GAP + 60;
   const TINTS = ['red', 'blue', 'yellow', 'green', 'orange', 'azure', 'lime', 'white', 'lbg', 'dbg', 'tan', 'blo', 'darkOrange', 'black'];
 
   function rrect(ctx, x, y, w, h, r) {
@@ -37,12 +41,11 @@
     ctx.font = '28px ' + FONT;
     ctx.fillText(ids.length + ' деталей lego.js, номера по каталогу BrickLink. Каждая нарисована кодом', 80, 160);
 
-    const gap = 16;
+    const gap = GAP;
     const x0 = 80;
-    const y0 = 200;
-    const rows = Math.ceil(ids.length / COLS);
+    const y0 = Y0;
     const cw = (W - 2 * x0 - (COLS - 1) * gap) / COLS;
-    const ch = (H - y0 - 60 - (rows - 1) * gap) / rows;
+    const ch = TILE_H;
     ids.forEach((id, i) => {
       const x = x0 + (i % COLS) * (cw + gap);
       const y = y0 + Math.floor(i / COLS) * (ch + gap);
@@ -63,8 +66,13 @@
       ctx.fillStyle = '#39414B';
       let size = 17;
       ctx.font = size + 'px ' + FONT;
-      while (size > 12 && ctx.measureText(LEGO.LIB[id].ru).width > cw - 26) ctx.font = --size + 'px ' + FONT;
+      while (size > 10 && ctx.measureText(LEGO.LIB[id].ru).width > cw - 26) ctx.font = --size + 'px ' + FONT;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x + 4, y, cw - 8, ch);
+      ctx.clip();
       ctx.fillText(LEGO.LIB[id].ru, x + 14, y + ch - 18);
+      ctx.restore();
     });
     ctx.restore();
   }

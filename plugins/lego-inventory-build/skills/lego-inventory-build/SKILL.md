@@ -11,7 +11,7 @@ description: Предлагает, что собрать из LEGO-детале�
 
 ## Что лежит в папке
 
-- `src/lego.js` движок, 47 деталей и 34 цвета с id BrickLink и Rebrickable. `src/booklet.js` сценарий ролика.
+- `src/lego.js` движок, 82 детали (кирпичи, пластины, плитки, скосы, круглые, кронштейны, колёса и кирпичи с колёсами, техник-балки и штифты, каркас, лестница, ящик, тарелка) и 34 цвета с id BrickLink и Rebrickable. `src/booklet.js` сценарий ролика.
 - `src/models/cat.js`, `microduck.js` примеры моделей. Свои модели храни в `models/<имя>.json` в рабочей папке.
 - `lib/core.cjs` модели, проверка, BOM и инвентарь. `lib/film.cjs` рендер через Playwright.
 - `tools/photo.cjs` распознавание деталей по фото, `tools/ideas.cjs` идеи под инвентарь (генераторы в `lib/ideas.cjs`).

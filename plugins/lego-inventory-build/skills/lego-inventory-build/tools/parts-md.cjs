@@ -7,7 +7,9 @@ require(path.resolve(__dirname, '../src/lego.js'));
 const LEGO = window.LEGO;
 const P = LEGO.PLATE;
 
+const SHAPES = { plate: 'пластина особой формы', round: 'круглая', wedge: 'клин', slope: 'скос', tile: 'плитка особой формы', bracket: 'кронштейн', container: 'ящик', decor: 'украшение', frame: 'каркас', ladder: 'лестница', wheels: 'с колёсами', wheel: 'колесо', technic: 'техник', pin: 'штифт' };
 const kind = (d) => {
+  if (d.shape) return SHAPES[d.shape] || d.shape;
   if (d.kind === 'cyl') return 'круглая';
   if (d.profile.length === 4) return d.studs.length ? 'коробка' : 'плитка';
   if (d.id === '3044c') return 'конек';

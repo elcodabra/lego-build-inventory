@@ -56,16 +56,16 @@ class Stock {
 // the rest are acceptable stand-ins of the same footprint and height.
 const SIZES = {
   brick: {
-    1: { 1: ['3005', '3062', '87087'], 2: ['3004', '3700'], 3: ['3622'], 4: ['3010', '3701'], 6: ['3009'], 8: ['3008'] },
+    1: { 1: ['3005', '3062', '87087'], 2: ['3004', '3700'], 3: ['3622'], 4: ['3010', '3701'], 6: ['3009'], 8: ['3008'], 12: ['6112'] },
     2: { 2: ['3003', '3941'], 3: ['3002'], 4: ['3001'], 6: ['2456'], 8: ['3007'] },
   },
   plate: {
     1: { 1: ['3024', '4073'], 2: ['3023'], 3: ['3623'], 4: ['3710'], 6: ['3666'], 8: ['3460'] },
-    2: { 2: ['3022', '4032'], 3: ['3021'], 4: ['3020'], 6: ['3795'], 8: ['3034'] },
+    2: { 2: ['3022', '4032'], 3: ['3021'], 4: ['3020'], 6: ['3795'], 8: ['3034'], 10: ['3832'], 12: ['2445'] },
   },
   tile: {
     1: { 1: ['3070', '98138'], 2: ['3069'], 3: ['63864'], 4: ['2431'], 6: ['6636'] },
-    2: { 2: ['3068', '14769'], 4: ['87079'] },
+    2: { 2: ['3068', '14769'], 3: ['26603'], 4: ['87079'] },
   },
   slope: { 2: { 1: ['3040'], 2: ['3039'] } },
 };
@@ -75,6 +75,7 @@ for (const [kind, byW] of Object.entries(SIZES)) {
   KIND_IDS[kind] = new Set(Object.values(byW).flatMap((byL) => Object.values(byL).flat()));
 }
 KIND_IDS.flat = new Set([...KIND_IDS.plate, ...KIND_IDS.tile]);
+KIND_IDS.wheels = new Set(['4180c01']);
 
 // Split length L into available parts of one colour, fewest parts first. null if impossible.
 function plan(S, kind, width, color, L, ids) {
@@ -163,7 +164,7 @@ function row(S, o) {
 }
 
 // A rectangle W x D of one kind, rows `width` 2 where possible. Big plates first.
-const BIG = { '6x6': ['3958', 0], '6x4': ['3032', 0], '4x6': ['3032', 1], '4x4': ['3031', 0] };
+const BIG = { '6x6': ['3958', 0], '6x4': ['3032', 0], '4x6': ['3032', 1], '4x4': ['3031', 0], '8x4': ['3035', 0], '4x8': ['3035', 1], '3x3': ['11212', 0] };
 function area(S, o) {
   const { kind, x, y, z, W, D } = o;
   const dir = o.dir || 'x';
@@ -555,6 +556,97 @@ const GENERATORS = {
       const all = order(S, ['tan', 'darkTan', 'yellow', 'lbg', 'dbg', 'white', 'red', 'blue'], 'brick');
       for (let k = 0, n = s; n >= 2; k++, n -= 2) {
         steps.push(need(area(S, { kind: 'brick', x: k, y: k, z: 3 * k, W: n, D: n, colors: all.slice().sort((a, b) => S.amount(b, 'brick') - S.amount(a, 'brick')), dir: k % 2 ? 'y' : 'x' })).parts);
+      }
+      return steps;
+    },
+  },
+  // A truck on two wheel bricks (4180): chassis plates over them, a cab in front, and a ladder
+  // (70646) laid over the cab and a rear post if you have one, else a cargo bed.
+  firetruck: {
+    title: 'Пожарная машина',
+    about: 'Машина на кирпичах с колёсами: шасси, кабина и лестница (или кузов)',
+    sizes: [{ L: 12, label: 'длинная' }, { L: 10, label: 'средняя' }, { L: 8, label: 'короткая' }],
+    theta: 35,
+    build(S, { L }, notes) {
+      const steps = [];
+      const wheels = [];
+      for (const x of [0, L - 4]) {
+        const c = order(S, ['black', 'dbg', 'lbg', 'red', 'white', 'blue', 'azure', 'yellow'], 'wheels').find((cc) => S.n('4180c01', cc) > 0) || (S.shopping ? 'black' : null);
+        need(c && S.take('4180c01', c), 'нужно 2 кирпича с колёсами (4180)');
+        wheels.push({ id: '4180c01', color: c, at: [x, 0, 0] });
+      }
+      steps.push(wheels);
+      const body = ['red', 'blue', 'yellow', 'white', 'lbg', 'dbg', 'black', 'green', 'azure', 'orange'];
+      steps.push(need(row(S, { kind: 'plate', width: 2, x: 0, y: 0, z: 6, L, colors: order(S, body, 'plate') }), 'шасси').parts);
+      const z = 7;
+      // cab: a 2x2x2 box (4345), else two 2x2 bricks
+      let cab = null;
+      for (const c of order(S, body, null)) if (S.n('4345', c) > 0) { S.take('4345', c); cab = [{ id: '4345', color: c, at: [L - 2, 0, z] }]; break; }
+      if (!cab) {
+        cab = oneColor(S, order(S, body, 'brick'), (cs) => [
+          ...need(row(S, { kind: 'brick', width: 2, x: L - 2, y: 0, z, L: 2, colors: cs })).parts,
+          ...need(row(S, { kind: 'brick', width: 2, x: L - 2, y: 0, z: z + 3, L: 2, colors: cs })).parts,
+        ], notes, 'кабина').result;
+      }
+      steps.push(cab);
+      const extra = [];
+      const lights = optional(S, ['15209'], ['white', 'lbg', 'yellow', 'red', 'black'], [L - 4, 0, z]);
+      if (lights) extra.push(lights);
+      const ladderC = ['white', 'lbg', 'yellow', 'dbg', 'black'].find((c) => S.n('70646', c) > 0);
+      if (ladderC && !S.shopping) {
+        // a rear post of two 2x2 bricks carries the back of the ladder, if there are bricks for it
+        const snap = S.snap();
+        let post = null;
+        try {
+          post = oneColor(S, order(S, body, 'brick'), (cs) => [
+            ...need(row(S, { kind: 'brick', width: 2, x: 0, y: 0, z, L: 2, colors: cs })).parts,
+            ...need(row(S, { kind: 'brick', width: 2, x: 0, y: 0, z: z + 3, L: 2, colors: cs })).parts,
+          ]).result;
+        } catch (e) { if (!(e instanceof Fail)) throw e; S.restore(snap); }
+        S.take('70646', ladderC);
+        if (post) extra.push(...post);
+        steps.push(extra);
+        steps.push([{ id: '70646', color: ladderC, at: [L - 14, -0.25, z + 6] }]);
+      } else {
+        // cargo bed: low walls of 1-wide bricks along both sides behind the cab
+        const snap = S.snap();
+        try {
+          const bed = oneColor(S, order(S, body, 'brick'), (cs) => [
+            ...need(row(S, { kind: 'brick', width: 1, x: 0, y: 0, z, L: L - 4, colors: cs })).parts,
+            ...need(row(S, { kind: 'brick', width: 1, x: 0, y: 1, z, L: L - 4, colors: cs })).parts,
+          ]).result;
+          extra.push(...bed);
+        } catch (e) { if (!(e instanceof Fail)) throw e; S.restore(snap); }
+        if (extra.length) steps.push(extra);
+      }
+      return steps;
+    },
+  },
+  // A rover: wheel bricks under a 4x6 deck, the roll cage (64450) on it and a radar dish (44375) on top.
+  rover: {
+    title: 'Луноход',
+    about: 'Луноход: колёса, платформа, каркас-кабина и тарелка-антенна',
+    sizes: [{ label: 'стандарт' }],
+    theta: 40,
+    build(S, p, notes) {
+      const steps = [];
+      const wheels = [];
+      for (const y of [0, 4]) {
+        const c = order(S, ['black', 'dbg', 'lbg', 'white', 'azure', 'blue', 'red'], 'wheels').find((cc) => S.n('4180c01', cc) > 0) || (S.shopping ? 'black' : null);
+        need(c && S.take('4180c01', c), 'нужно 2 кирпича с колёсами (4180)');
+        wheels.push({ id: '4180c01', color: c, at: [0, y, 0] });
+      }
+      steps.push(wheels);
+      steps.push(need(area(S, { kind: 'plate', x: 0, y: 0, z: 6, W: 4, D: 6, dir: 'y', colors: order(S, ['dbg', 'lbg', 'blue', 'black', 'white', 'azure', 'red'], 'plate') }), 'платформа 4×6').parts);
+      const cc = ['black', 'dbg', 'lbg', 'white', 'red', 'yellow', 'blue'].find((c) => S.n('64450', c) > 0) || (S.shopping ? 'black' : null);
+      need(cc && S.take('64450', cc), 'нужен каркас 64450');
+      steps.push([{ id: '64450', color: cc, at: [0, 0, 7] }]);
+      const dc = ['lbg', 'white', 'dbg', 'black', 'yellow', 'red', 'blue'].find((c) => S.n('44375b', c) > 0);
+      if (dc) { S.take('44375b', dc); steps.push([{ id: '44375b', color: dc, at: [-1, 0, 17] }]); }
+      else {
+        const top = optional(S, ['4032', '3022', '3068'], ['lbg', 'white', 'dbg', 'yellow', 'red'], [1, 1, 17]);
+        if (top) steps.push([top]);
+        notes.push('без тарелки-антенны 44375');
       }
       return steps;
     },

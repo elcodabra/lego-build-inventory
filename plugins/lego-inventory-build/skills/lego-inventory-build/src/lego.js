@@ -262,6 +262,253 @@
   round('98138', 'Круглая плитка 1×1', 1, 1, false);
   round('14769', 'Круглая плитка 2×2', 2, 1, false);
 
+  // ------------------------------------------------------------------ complex parts
+  // A complex part is a list of convex pieces (all coordinates in the part's own frame, studs up
+  // = +z). Builders below return pieces; cpart() registers the part.
+  //   box3   axis-aligned box
+  //   prismZ a convex polygon in the x-y plane pushed up from z0 to z1 (wedges, rounded corners)
+  //   prismX a convex polygon in the y-z plane pushed along x (slopes seen from the side)
+  //   lathe  a solid of revolution around +z from a profile [[r, z]...] (cones, dishes)
+  //   cylP   a cylinder with any axis (wheels, axles, pins, ladder rails)
+  //   ballP  a sphere approximated by a lathe
+  const box3 = (x0, y0, z0, x1, y1, z1, extra) => Object.assign({
+    V: [[x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0], [x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]],
+    faces: [[0, 3, 2, 1], [4, 5, 6, 7], [0, 1, 5, 4], [1, 2, 6, 5], [2, 3, 7, 6], [3, 0, 4, 7]],
+  }, extra || {});
+  function prismZ(poly, z0, z1, extra) {
+    const n = poly.length;
+    const V = poly.map(([x, y]) => [x, y, z0]).concat(poly.map(([x, y]) => [x, y, z1]));
+    const faces = [poly.map((_, i) => n - 1 - i), poly.map((_, i) => n + i)];
+    for (let i = 0; i < n; i++) { const j = (i + 1) % n; faces.push([i, j, n + j, n + i]); }
+    return Object.assign({ V, faces }, extra || {});
+  }
+  function prismX(poly, x0, x1, extra) {
+    const n = poly.length;
+    const V = poly.map(([y, z]) => [x0, y, z]).concat(poly.map(([y, z]) => [x1, y, z]));
+    const faces = [poly.map((_, i) => i), poly.map((_, i) => 2 * n - 1 - i)];
+    for (let i = 0; i < n; i++) { const j = (i + 1) % n; faces.push([i, j, n + j, n + i]); }
+    return Object.assign({ V, faces }, extra || {});
+  }
+  function prismY(poly, y0, y1, extra) {
+    const n = poly.length;
+    const V = poly.map(([x, z]) => [x, y0, z]).concat(poly.map(([x, z]) => [x, y1, z]));
+    const faces = [poly.map((_, i) => i), poly.map((_, i) => 2 * n - 1 - i)];
+    for (let i = 0; i < n; i++) { const j = (i + 1) % n; faces.push([i, j, n + j, n + i]); }
+    return Object.assign({ V, faces }, extra || {});
+  }
+  // rounded rectangle (stadium) from a0 to a1 along one axis, b0..b1 across, as a convex polygon
+  function stadium(a0, a1, b0, b1, seg) {
+    const r = (b1 - b0) / 2;
+    const c = (b0 + b1) / 2;
+    const s = seg || 6;
+    const pts = [];
+    for (let i = 0; i <= s; i++) { const t = -PI / 2 + (PI * i) / s; pts.push([a1 - r + r * Math.cos(t), c + r * Math.sin(t)]); }
+    for (let i = 0; i <= s; i++) { const t = PI / 2 + (PI * i) / s; pts.push([a0 + r + r * Math.cos(t), c + r * Math.sin(t)]); }
+    return pts;
+  }
+  function lathe(cx, cy, prof, seg, extra) {
+    const s = seg || 24;
+    const V = [];
+    for (const [r, z] of prof) for (let i = 0; i < s; i++) { const a = (2 * PI * i) / s; V.push([cx + r * Math.cos(a), cy + r * Math.sin(a), z]); }
+    const faces = [];
+    const m = prof.length;
+    faces.push([...Array(s).keys()].reverse());
+    faces.push([...Array(s).keys()].map((i) => (m - 1) * s + i));
+    for (let k = 0; k < m - 1; k++) for (let i = 0; i < s; i++) {
+      const j = (i + 1) % s;
+      faces.push([k * s + i, k * s + j, (k + 1) * s + j, (k + 1) * s + i]);
+    }
+    // a zero radius ring collapses: drop its degenerate faces
+    const zeroRing = prof.map(([r]) => r < 1e-6);
+    const keep = faces.filter((f) => new Set(f.map((v) => (zeroRing[Math.floor(v / s)] ? 'apex' + Math.floor(v / s) : v))).size >= 3);
+    return Object.assign({ V, faces: keep.map((f) => {
+      const out = [];
+      for (const v of f) { const k = zeroRing[Math.floor(v / s)] ? Math.floor(v / s) * s : v; if (out[out.length - 1] !== k && out[0] !== k) out.push(k); }
+      return out;
+    }) }, extra || {});
+  }
+  const cylP = (base, ax, r, h, extra) => Object.assign({ type: 'cyl', base, ax, r, h }, extra || {});
+  function ballP(c, r, extra) {
+    const prof = [];
+    for (let i = 0; i <= 6; i++) { const t = -PI / 2 + (PI * i) / 6; prof.push([r * Math.cos(t), c[2] + r * Math.sin(t)]); }
+    return lathe(c[0], c[1], prof, 14, extra);
+  }
+  function cpart(def) {
+    reg(Object.assign({ kind: 'ext', studs: [], discs: [] }, def));
+  }
+  const PH = PLATE; // plate height
+  const BH = 3 * PLATE; // brick height
+  // studs on top of a rectangle of the grid
+  const studsAt = (cells, z) => cells.map(([x, y]) => [x + 0.5, y + 0.5, z]);
+  const cellsOf = (x0, y0, x1, y1) => { const c = []; for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) c.push([x, y]); return c; };
+  // a technic pin hole through a face: a dark disc on both sides
+  const holeX = (y, z, w) => [{ c: [0, y, z], n: [-1, 0, 0], r: 0.3, kind: 'hole' }, { c: [w, y, z], n: [1, 0, 0], r: 0.3, kind: 'hole' }];
+  const holeY = (x, z, d) => [{ c: [x, 0, z], n: [0, -1, 0], r: 0.3, kind: 'hole' }, { c: [x, d, z], n: [0, 1, 0], r: 0.3, kind: 'hole' }];
+  const holeZ = (x, y, z0, z1) => [{ c: [x, y, z0], n: [0, 0, -1], r: 0.3, kind: 'hole' }, { c: [x, y, z1], n: [0, 0, 1], r: 0.3, kind: 'hole' }];
+  // inside a convex polygon (counter-clockwise) with a margin, for placing studs on odd shapes
+  const insidePoly = (poly, x, y, m) => poly.every((a, i) => {
+    const b = poly[(i + 1) % poly.length];
+    const ex = b[0] - a[0];
+    const ey = b[1] - a[1];
+    return (ex * (y - a[1]) - ey * (x - a[0])) / Math.hypot(ex, ey) >= m;
+  });
+  const studsIn = (poly, W, D, z) => studsAt(cellsOf(0, 0, W, D).filter(([x, y]) => insidePoly(poly, x + 0.5, y + 0.5, 0.25)), z);
+
+  // --- plain shapes in more sizes
+  box('11212', 'Пластина 3×3', 3, 3, 1, true);
+  box('3832', 'Пластина 2×10', 10, 2, 1, true);
+  box('2445', 'Пластина 2×12', 12, 2, 1, true);
+  box('3035', 'Пластина 4×8', 8, 4, 1, true);
+  box('26603', 'Плитка 2×3', 3, 2, 1, false);
+  box('6112', 'Кирпич 1×12', 12, 1, 3, true);
+
+  // --- modified plates
+  // door rail: a lower lip along the front edge (y = 0)
+  cpart({ id: '4510', ru: 'Пластина 1×8 с рельсом', w: 8, d: 1, h: PH, shape: 'plate',
+    pieces: [box3(0, 0.2, 0, 8, 1, PH), box3(0, 0, 0, 8, 0.2, 0.24)], studs: studsAt(cellsOf(0, 0, 8, 1), PH) });
+  cpart({ id: '30586', ru: 'Пластина 2×8 с рельсом', w: 8, d: 2, h: PH, shape: 'plate',
+    pieces: [box3(0, 1, 0, 8, 2, PH), box3(0, 0.25, 0, 8, 1, PH), box3(0, 0, 0, 8, 0.25, 0.24)], studs: studsAt(cellsOf(0, 1, 8, 2), PH) });
+  {
+    const arc = [];
+    for (let i = 0; i <= 8; i++) { const t = (PI / 2) * (i / 8); arc.push([3 * Math.cos(t), 3 * Math.sin(t)]); }
+    const poly = [[0, 0]].concat(arc);
+    cpart({ id: '30357', ru: 'Пластина 3×3 скруглённая', w: 3, d: 3, h: PH, shape: 'plate', pieces: [prismZ(poly, 0, PH)], studs: studsAt(cellsOf(0, 0, 3, 3).filter(([x, y]) => !(x === 2 && y === 2)), PH) });
+  }
+  cpart({ id: '60474', ru: 'Круглая пластина 4×4', w: 4, d: 4, h: PH, shape: 'round',
+    pieces: [cylP([2, 2, 0], [0, 0, 1], 1.98, PH)],
+    studs: studsAt(cellsOf(0, 0, 4, 4).filter(([x, y]) => !((x === 0 || x === 3) && (y === 0 || y === 3))), PH),
+    discs: [{ c: [2, 2, PH], n: [0, 0, 1], r: 0.2, kind: 'hole' }] });
+  cpart({ id: '64799', ru: 'Пластина 4×4 с окном 2×2', w: 4, d: 4, h: PH, shape: 'plate',
+    pieces: [box3(0, 0, 0, 4, 1, PH), box3(0, 3, 0, 4, 4, PH), box3(0, 1, 0, 1, 3, PH), box3(3, 1, 0, 4, 3, PH)],
+    studs: studsAt(cellsOf(0, 0, 4, 4).filter(([x, y]) => !(x >= 1 && x <= 2 && y >= 1 && y <= 2)), PH) });
+  {
+    const w64 = [[0, 0], [4, 0], [4, 6], [3, 6]];
+    cpart({ id: '48205', ru: 'Клиновидная пластина 6×4', w: 4, d: 6, h: PH, shape: 'wedge', pieces: [prismZ(w64, 0, PH)], studs: studsIn(w64, 4, 6, PH) });
+    const w22 = [[0, 0], [2, 0], [2, 2], [1, 2], [0, 1]];
+    cpart({ id: '24299', ru: 'Клиновидная пластина 2×2', w: 2, d: 2, h: PH, shape: 'wedge', pieces: [prismZ(w22, 0, PH)], studs: studsIn(w22, 2, 2, PH) });
+  }
+  // double inverted slope 6x2 with a 2x4 plate-high middle
+  cpart({ id: '22889', ru: 'Двойной обратный скос 6×2', w: 6, d: 2, h: BH, shape: 'slope',
+    pieces: [
+      box3(1, 0, 0, 5, 2, PH),
+      prismY([[1, 0], [1, BH], [0, BH], [0, BH - 0.2]], 0, 2),
+      prismY([[5, 0], [6, BH - 0.2], [6, BH], [5, BH]], 0, 2),
+    ],
+    studs: studsAt(cellsOf(1, 0, 5, 2), PH).concat(studsAt([[0, 0], [0, 1], [5, 0], [5, 1]], BH)) });
+  // tow balls stick out of both ends of a 1x2 plate
+  cpart({ id: '3170', ru: 'Пластина 1×2 с шарами', w: 2, d: 1, h: PH, shape: 'plate',
+    pieces: [box3(0, 0, 0, 2, 1, PH), box3(-0.15, 0.42, 0.12, 0, 0.58, 0.28), box3(2, 0.42, 0.12, 2.15, 0.58, 0.28), ballP([-0.35, 0.5, 0.2], 0.2), ballP([2.35, 0.5, 0.2], 0.2)],
+    studs: studsAt(cellsOf(0, 0, 2, 1), PH) });
+  cpart({ id: '15209', ru: 'Плитка 1×2 с двумя зубцами', w: 2, d: 1, h: PH, shape: 'tile',
+    pieces: [box3(0, 0, 0, 2, 1, PH), lathe(0.5, 0.5, [[0.42, PH], [0.3, PH + 0.5], [0, PH + 1.0]], 12), lathe(1.5, 0.5, [[0.42, PH], [0.3, PH + 0.5], [0, PH + 1.0]], 12)] });
+
+  // --- brackets: studs on a vertical face
+  cpart({ id: '44728', ru: 'Кронштейн 1×2 - 2×2', w: 2, d: 1, h: 2.0, shape: 'bracket',
+    pieces: [box3(0, 0, 0, 2, 0.4, 2.0), box3(0, 0.4, 1.6, 2, 1, 2.0)],
+    studs: studsAt(cellsOf(0, 0, 2, 1), 2.0).concat([[0.5, 0, 0.5, [0, -1, 0]], [1.5, 0, 0.5, [0, -1, 0]], [0.5, 0, 1.5, [0, -1, 0]], [1.5, 0, 1.5, [0, -1, 0]]]) });
+  cpart({ id: '3956', ru: 'Кронштейн 2×2 - 2×2', w: 2, d: 2, h: 2.0, shape: 'bracket',
+    pieces: [box3(0, 0, 0, 2, 0.4, 2.0), box3(0, 0.4, 0, 2, 2, PH)],
+    studs: [[0.5, 0, 0.5, [0, -1, 0]], [1.5, 0, 0.5, [0, -1, 0]], [0.5, 0, 1.5, [0, -1, 0]], [1.5, 0, 1.5, [0, -1, 0]]],
+    discs: [{ c: [0.5, 1.3, PH], n: [0, 0, 1], r: 0.3, kind: 'hole' }, { c: [1.5, 1.3, PH], n: [0, 0, 1], r: 0.3, kind: 'hole' }],
+    joints: [{ p: [0.5, 1.3, 0], a: [0, 0, 1], len: PH, t: 'hole' }, { p: [1.5, 1.3, 0], a: [0, 0, 1], len: PH, t: 'hole' }] });
+
+  // --- boxes, round and odd parts
+  cpart({ id: '4345', ru: 'Ящик 2×2×2', w: 2, d: 2, h: 2 * BH, shape: 'container',
+    pieces: [
+      box3(0, 0, 0, 2, 2, 0.2), box3(0, 0, 0.2, 0.15, 2, 2.0), box3(1.85, 0, 0.2, 2, 2, 2.0),
+      box3(0.15, 1.85, 0.2, 1.85, 2, 2.0), box3(0, 0, 2.0, 2, 2, 2 * BH),
+    ],
+    studs: studsAt(cellsOf(0, 0, 2, 2), 2 * BH) });
+  {
+    const prof = [];
+    for (let i = 0; i <= 6; i++) { const z = (3 * BH * i) / 6; prof.push([0.3 + 1.18 * Math.sqrt(1 - z / (3 * BH)), z]); }
+    cpart({ id: '1744', ru: 'Конус 3×3×3', w: 3, d: 3, h: 3 * BH, shape: 'round', pieces: [lathe(1.5, 1.5, prof, 24)], studs: [[1.5, 1.5, 3 * BH]] });
+  }
+  cpart({ id: '44375b', ru: 'Тарелка-антенна 6×6', w: 6, d: 6, h: BH, shape: 'round',
+    pieces: [lathe(3, 3, [[2.98, 0], [2.98, 0.1], [2.4, 0.62], [1.5, BH]], 28)],
+    studs: [[2.5, 2.5, BH], [3.5, 2.5, BH], [2.5, 3.5, BH], [3.5, 3.5, BH]],
+    discs: [{ c: [3, 3, BH], n: [0, 0, 1], r: 0.2, kind: 'hole' }] });
+  cpart({ id: '64647', ru: 'Пламя', w: 1, d: 1, h: 1.9, shape: 'decor',
+    pieces: [cylP([0.5, 0.5, 0], [0, 0, 1], 0.16, 0.4), lathe(0.5, 0.5, [[0.38, 0.4], [0.42, 0.8], [0.3, 1.3], [0, 1.9]], 14)] });
+  cpart({ id: '35809', ru: 'Ручка (аксессуар)', w: 2.2, d: 0.4, h: 0.4, shape: 'decor',
+    pieces: [cylP([0, 0.2, 0.2], [1, 0, 0], 0.18, 1.9), cylP([1.9, 0.2, 0.2], [1, 0, 0], 0.12, 0.3, { color: 'darkBlue' })] });
+  // roll cage: four posts, a frame on top and a 2x2 studded panel
+  cpart({ id: '64450', ru: 'Каркас-кабина 6×4×3⅓', w: 4, d: 6, h: 4.0, shape: 'frame',
+    pieces: [
+      box3(0, 0, 0, 0.35, 0.35, 3.6), box3(3.65, 0, 0, 4, 0.35, 3.6), box3(0, 5.65, 0, 0.35, 6, 3.6), box3(3.65, 5.65, 0, 4, 6, 3.6),
+      box3(0, 0, 3.6, 0.35, 6, 4.0), box3(3.65, 0, 3.6, 4, 6, 4.0), box3(0.35, 0, 3.6, 3.65, 0.35, 4.0), box3(0.35, 5.65, 3.6, 3.65, 6, 4.0),
+      box3(0.35, 1, 3.6, 3.65, 3, 4.0),
+    ],
+    studs: studsAt(cellsOf(1, 1, 3, 3), 4.0) });
+  {
+    const pieces = [box3(0, 0, 0, 16, 0.4, PH), box3(0, 2.1, 0, 16, 2.5, PH), box3(0, 0.4, 0, 1, 2.1, PH), box3(15, 0.4, 0, 16, 2.1, PH)];
+    for (let i = 1; i < 15; i++) pieces.push(box3(i + 0.4, 0.4, 0.08, i + 0.6, 2.1, 0.32));
+    cpart({ id: '70646', ru: 'Лестница 16×2.5', w: 16, d: 2.5, h: PH, shape: 'ladder', pieces, studs: [[0.5, 1.25, PH], [15.5, 1.25, PH]] });
+  }
+
+  // --- wheels. Tyres are always black; the rim takes the part colour (a print on the tyre side).
+  // Brick 2x4 with train wheels: the axle runs along x, wheels at both short ends. The wheels
+  // stand on the ground (at z 0) and reach the top of the brick body, which sits 3 plates up, so
+  // a plate laid over the brick clears the wheels. Grid box: 4 x 2 x 6 plates.
+  cpart({ id: '4180c01', ru: 'Кирпич 2×4 с колёсами', w: 4, d: 2, h: 2.4, shape: 'wheels',
+    pieces: [box3(0, 0, 1.2, 4, 2, 2.4), cylP([-0.55, 1, 1.2], [1, 0, 0], 1.2, 0.55, { color: 'black' }), cylP([4, 1, 1.2], [1, 0, 0], 1.2, 0.55, { color: 'black' })],
+    studs: studsAt(cellsOf(0, 0, 4, 2), 2.4),
+    discs: [
+      { c: [-0.55, 1, 1.2], n: [-1, 0, 0], r: 0.8, color: 'dbg' }, { c: [4.55, 1, 1.2], n: [1, 0, 0], r: 0.8, color: 'dbg' },
+      { c: [-0.55, 1, 1.2], n: [-1, 0, 0], r: 0.18, color: 'red' }, { c: [4.55, 1, 1.2], n: [1, 0, 0], r: 0.18, color: 'red' },
+    ] });
+  function wheel(id, ru, R, W, rim) {
+    cpart({ id, ru, w: W, d: 2 * R, h: 2 * R, shape: 'wheel',
+      pieces: [cylP([0, R, R], [1, 0, 0], R, W, { color: 'black' })],
+      discs: [
+        { c: [0, R, R], n: [-1, 0, 0], r: rim, color: null }, { c: [W, R, R], n: [1, 0, 0], r: rim, color: null },
+        { c: [0, R, R], n: [-1, 0, 0], r: 0.3, kind: 'hole', piece: 0 }, { c: [W, R, R], n: [1, 0, 0], r: 0.3, kind: 'hole', piece: 0 },
+      ],
+      joints: [{ p: [0, R, R], a: [1, 0, 0], len: W, t: 'hole' }] });
+  }
+  wheel('55981', 'Колесо с шиной 30×14', 1.9, 1.75, 1.1);
+  wheel('93594', 'Колёсико с шиной 14×6', 0.875, 0.75, 0.55);
+
+  // --- technic: liftarms (holes across, along y), connector, pins
+  function liftarm(id, ru, L, alongZ) {
+    const discs = [];
+    const joints = [];
+    for (let i = 0; i < L; i++) {
+      if (alongZ && alongZ.includes(i)) {
+        discs.push(...holeZ(i + 0.5, 0.5, 0, 1));
+        joints.push({ p: [i + 0.5, 0.5, 0], a: [0, 0, 1], len: 1, t: 'hole' });
+      } else {
+        discs.push(...holeY(i + 0.5, 0.5, 1));
+        joints.push({ p: [i + 0.5, 0, 0.5], a: [0, 1, 0], len: 1, t: 'hole' });
+      }
+    }
+    cpart({ id, ru, w: L, d: 1, h: 1, shape: 'technic', pieces: [prismY(stadium(0, L, 0, 1), 0, 1)], discs, joints });
+  }
+  liftarm('32316', 'Техник-балка 1×5', 5);
+  liftarm('2391', 'Техник-балка 1×7 с отверстиями', 7, [1, 2, 4, 5]);
+  liftarm('40490', 'Техник-балка 1×9', 9);
+  cpart({ id: '42003', ru: 'Техник-соединитель 3L', w: 3, d: 1, h: 1, shape: 'technic',
+    pieces: [prismZ(stadium(0, 3, 0, 1), 0, 1)],
+    discs: holeZ(1.5, 0.5, 0, 1).concat(holeZ(2.5, 0.5, 0, 1), holeY(0.5, 0.5, 1)),
+    joints: [{ p: [1.5, 0.5, 0], a: [0, 0, 1], len: 1, t: 'hole' }, { p: [2.5, 0.5, 0], a: [0, 0, 1], len: 1, t: 'hole' }, { p: [0.5, 0, 0.5], a: [0, 1, 0], len: 1, t: 'axlehole' }] });
+  // pins lie along x in a 1x1 cross-section (axis at y = z = 0.5); each half goes into one hole
+  function pin(id, ru, kinds) {
+    cpart({ id, ru, w: 2, d: 1, h: 1, shape: 'pin',
+      pieces: [cylP([0, 0.5, 0.5], [1, 0, 0], kinds[0] === 'axle' ? 0.26 : 0.3, 0.93), cylP([0.93, 0.5, 0.5], [1, 0, 0], 0.37, 0.14), cylP([1.07, 0.5, 0.5], [1, 0, 0], kinds[1] === 'axle' ? 0.26 : 0.3, 0.93)],
+      joints: [{ p: [0, 0.5, 0.5], a: [1, 0, 0], len: 1, t: kinds[0] }, { p: [1, 0.5, 0.5], a: [1, 0, 0], len: 1, t: kinds[1] }] });
+  }
+  pin('3673', 'Техник-штифт', ['pin', 'pin']);
+  pin('2780', 'Техник-штифт с фиксатором', ['pin', 'pin']);
+  pin('43093', 'Техник-штифт с осью', ['axle', 'pin']);
+
+  // Joints of the old technic bricks come from their holes (through the part along y).
+  for (const id of ['3700', '3701']) LIB[id].joints = LIB[id].holes.map(([x, z]) => ({ p: [x, 0, z], a: [0, 1, 0], len: LIB[id].d, t: 'hole' }));
+
+  // Collision boxes in the part's own frame: the grid box for simple parts, one box per piece
+  // for complex ones. Joints: technic holes, pins and axles as segments { p, a, len, t }.
+  LEGO.collidersOf = (def) => (def.pieces ? geomOf(def).map((g) => ({ lo: g.lo, hi: g.hi })) : [{ lo: [0, 0, 0], hi: [def.w, def.d, def.h] }]);
+  LEGO.jointsOf = (def) => def.joints || [];
+
   // Polyhedron of an extruded part, built once per part type.
   function newell(pts) {
     let x = 0;
@@ -277,19 +524,8 @@
     return norm([x, y, z]);
   }
 
-  function geomOf(def) {
-    if (def._g) return def._g;
-    if (def.kind !== 'ext') return (def._g = { kind: 'cyl', base: [def.w / 2, def.d / 2, 0], r: def.r, h: def.h });
-    const P = def.profile;
-    const m = P.length;
-    const V = [];
-    for (const q of P) V.push([0, q[0], q[1]]);
-    for (const q of P) V.push([def.w, q[0], q[1]]);
-    const faces = [P.map((_, i) => i), P.map((_, i) => 2 * m - 1 - i)];
-    for (let i = 0; i < m; i++) {
-      const j = (i + 1) % m;
-      faces.push([i, j, m + j, m + i]);
-    }
+  // Polyhedron from vertices and faces (index lists), outward normals and edges with smoothing.
+  function polyGeom(V, faces) {
     const cen = [0, 0, 0];
     for (const v of V) for (let k = 0; k < 3; k++) cen[k] += v[k] / V.length;
     const F = faces.map((idx) => {
@@ -318,7 +554,80 @@
     });
     const cosSmooth = Math.cos((30 * PI) / 180);
     for (const e of E) e.smooth = e.f2 >= 0 && dot(F[e.f1].n, F[e.f2].n) > cosSmooth;
-    return (def._g = { kind: 'ext', V, F, E });
+    const lo = [Infinity, Infinity, Infinity];
+    const hi = [-Infinity, -Infinity, -Infinity];
+    for (const v of V) for (let k = 0; k < 3; k++) { if (v[k] < lo[k]) lo[k] = v[k]; if (v[k] > hi[k]) hi[k] = v[k]; }
+    return { kind: 'ext', V, F, E, lo, hi };
+  }
+
+  function cylLocal(base, ax, r, h) {
+    const lo = [0, 0, 0];
+    const hi = [0, 0, 0];
+    cylBox(base, ax, r, h, lo, hi);
+    return { kind: 'cyl', base, ax, r, h, lo, hi };
+  }
+
+  // Which piece a disc / stud belongs to: the piece whose face it sits on, deepest inside it.
+  function pieceFor(G, c, n) {
+    if (G.length === 1) return 0;
+    const k = Math.abs(n[0]) > 0.5 ? 0 : Math.abs(n[1]) > 0.5 ? 1 : 2;
+    let best = 0;
+    let bestM = -Infinity;
+    G.forEach((g, i) => {
+      let m = Infinity;
+      for (let a = 0; a < 3; a++) if (a !== k) m = Math.min(m, c[a] - g.lo[a], g.hi[a] - c[a]);
+      const face = n[k] > 0 ? g.hi[k] : g.lo[k];
+      if (Math.abs(c[k] - face) > 0.06) m -= 10;
+      if (m > bestM) { bestM = m; best = i; }
+    });
+    return best;
+  }
+
+  // Geometry of a part: a list of convex pieces in the part's own coordinates, built once.
+  function geomOf(def) {
+    if (def._g) return def._g;
+    let G;
+    if (def.pieces) {
+      G = def.pieces.map((pc) => Object.assign(
+        pc.type === 'cyl' ? cylLocal(pc.base, pc.ax, pc.r, pc.h) : polyGeom(pc.V, pc.faces),
+        { color: pc.color || null, join: pc.join || [] }
+      ));
+    } else if (def.kind !== 'ext') {
+      G = [cylLocal([def.w / 2, def.d / 2, 0], [0, 0, 1], def.r, def.h)];
+    } else {
+      const P = def.profile;
+      const m = P.length;
+      const V = [];
+      for (const q of P) V.push([0, q[0], q[1]]);
+      for (const q of P) V.push([def.w, q[0], q[1]]);
+      const faces = [P.map((_, i) => i), P.map((_, i) => 2 * m - 1 - i)];
+      for (let i = 0; i < m; i++) {
+        const j = (i + 1) % m;
+        faces.push([i, j, m + j, m + i]);
+      }
+      G = [polyGeom(V, faces)];
+    }
+    for (const g of G) { g.color = g.color || null; g.join = g.join || []; }
+    def._discPiece = (def.discs || []).map((d) => (d.piece != null ? d.piece : pieceFor(G, d.c || (d.poly || d.line)[0], d.n)));
+    def._studPiece = def.studs.map((s) => pieceFor(G, s, s[3] || [0, 0, 1]));
+    return (def._g = G);
+  }
+
+  // Part box in its own coordinates, pieces and stud tips included (camera framing).
+  function localBox(def) {
+    if (def._box) return def._box;
+    if (!def.pieces) {
+      const top = def.studs.length ? def.h + STUD_H : def.h;
+      return (def._box = { lo: [0, 0, 0], hi: [def.w, def.d, top] });
+    }
+    const lo = [Infinity, Infinity, Infinity];
+    const hi = [-Infinity, -Infinity, -Infinity];
+    for (const g of geomOf(def)) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], g.lo[k]); hi[k] = Math.max(hi[k], g.hi[k]); }
+    for (const s of def.studs) {
+      const tip = madd(s, s[3] || [0, 0, 1], STUD_H);
+      for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], tip[k]); hi[k] = Math.max(hi[k], tip[k]); }
+    }
+    return (def._box = { lo, hi });
   }
 
   // ------------------------------------------------------------------ placing
@@ -339,7 +648,8 @@
     [[0, 1, 0], [-1, 0, 0], [0, 0, 1]],
   ];
 
-  // spec: { id, color, at: [x, y, zPlates] = min corner of the part's box, rot 0..3, up, prints }
+  // spec: { id, color, at: [x, y, zPlates] = min corner of the part's grid box (w x d x h, or
+  // def.anchor: wheels, balls or a pin can stick out of it), rot 0..3, up, prints }
   LEGO.place = function place(spec) {
     const def = LIB[spec.id];
     if (!def) throw new Error('lego.js: unknown part ' + spec.id);
@@ -349,9 +659,10 @@
     if (!up) throw new Error('lego.js: unknown up ' + spec.up);
     const M = mulMM(RZ[(spec.rot || 0) & 3], up);
     const lo = [Infinity, Infinity, Infinity];
-    for (const x of [0, def.w]) {
-      for (const y of [0, def.d]) {
-        for (const z of [0, def.h]) {
+    const anc = def.anchor || { lo: [0, 0, 0], hi: [def.w, def.d, def.h] };
+    for (const x of [anc.lo[0], anc.hi[0]]) {
+      for (const y of [anc.lo[1], anc.hi[1]]) {
+        for (const z of [anc.lo[2], anc.hi[2]]) {
           const v = mulMV(M, [x, y, z]);
           for (let k = 0; k < 3; k++) if (v[k] < lo[k]) lo[k] = v[k];
         }
@@ -509,7 +820,7 @@
   function covered(q, self, bodies, index) {
     if (index) bodies = index.get(Math.floor(q[0]) * 65536 + Math.floor(q[1])) || [];
     for (const b of bodies) {
-      if (b === self) continue;
+      if (b === self || (self.group && b.group === self.group)) continue;
       if (
         q[0] > b.min[0] + 0.02 && q[0] < b.max[0] - 0.02 &&
         q[1] > b.min[1] + 0.02 && q[1] < b.max[1] - 0.02 &&
@@ -538,72 +849,84 @@
         const a = cam.project([p.off[0] + mv0[0], p.off[1] + mv0[1], p.off[2] + mv0[2]]);
         if (a[0] < cull[0] || a[0] > cull[2] || a[1] < cull[1] || a[1] > cull[3]) continue;
       }
-      const g = geomOf(p.def);
+      const G = geomOf(p.def);
       const mv = it.move || ZERO;
       const off = [p.off[0] + mv[0], p.off[1] + mv[1], p.off[2] + mv[2]];
       const pale = it.pale || 0;
-      const o = {
-        type: 'body', part: p, off, rgb: p.rgb, pale, halo: it.halo || 0, base: it.base ? 0 : 1,
-        alpha: it.alpha == null ? 1 : it.alpha, edge: edgeTone(p.rgb, pale),
-      };
-      const mn = [Infinity, Infinity, Infinity];
-      const mx = [-Infinity, -Infinity, -Infinity];
-      if (g.kind === 'ext') {
-        const Wv = g.V.map((v) => add(mulMV(p.M, v), off));
-        for (const w of Wv) {
-          for (let k = 0; k < 3; k++) {
-            if (w[k] < mn[k]) mn[k] = w[k];
-            if (w[k] > mx[k]) mx[k] = w[k];
+      const group = [];
+      const allPrints = (p.def.discs || []).map((d, i) => [p.def._discPiece[i], d]).concat((p.spec.prints || []).map((d) => [0, d]));
+      G.forEach((g, gi) => {
+        // a piece may have its own fixed colour (black tyres, a red pin)
+        const rgb = g.color && COLORS[g.color] ? COLORS[g.color].rgb : p.rgb;
+        const o = {
+          type: 'body', part: p, off, rgb, pale, halo: it.halo || 0, base: it.base ? 0 : 1,
+          alpha: it.alpha == null ? 1 : it.alpha, edge: edgeTone(rgb, pale), group, piece: gi,
+        };
+        const mn = [Infinity, Infinity, Infinity];
+        const mx = [-Infinity, -Infinity, -Infinity];
+        if (g.kind === 'ext') {
+          const Wv = g.V.map((v) => add(mulMV(p.M, v), off));
+          for (const w of Wv) {
+            for (let k = 0; k < 3; k++) {
+              if (w[k] < mn[k]) mn[k] = w[k];
+              if (w[k] > mx[k]) mx[k] = w[k];
+            }
           }
+          o.P = Wv.map(cam.project);
+          o.E = g.E;
+          o.faces = g.F.map((f) => {
+            const n = mulMV(p.M, f.n);
+            const vis = dot(n, cam.dir) > 1e-6;
+            return { idx: f.idx, vis, fill: vis ? tone(rgb, lightOf(cam, n), pale) : null };
+          });
+          o.hull = hull2(o.P);
+        } else {
+          const ax = mulMV(p.M, g.ax);
+          const C = add(mulMV(p.M, g.base), off);
+          o.cyl = cylGeom(cam, C, ax, g.r, g.h);
+          cylBox(C, ax, g.r, g.h, mn, mx);
+          o.hull = o.cyl.sil;
         }
-        o.P = Wv.map(cam.project);
-        o.E = g.E;
-        o.faces = g.F.map((f) => {
-          const n = mulMV(p.M, f.n);
-          const vis = dot(n, cam.dir) > 1e-6;
-          return { idx: f.idx, vis, fill: vis ? tone(p.rgb, lightOf(cam, n), pale) : null };
-        });
-        o.hull = hull2(o.P);
-      } else {
-        const ax = mulMV(p.M, [0, 0, 1]);
-        const C = add(mulMV(p.M, g.base), off);
-        o.cyl = cylGeom(cam, C, ax, g.r, g.h);
-        cylBox(C, ax, g.r, g.h, mn, mx);
-        o.hull = o.cyl.sil;
-      }
-      o.min = mn;
-      o.max = mx;
-      o.prints = (p.def.discs || []).concat(p.spec.prints || []).map((d) => worldPrint(p, off, d));
-      // printed lines (whiskers) may reach past the part, keep them inside its screen box
-      const reach = o.hull.slice();
-      for (const d of o.prints) if (d.pts) for (const q of d.pts) reach.push(cam.project(q));
-      o.rect = rectOf(reach, pad);
-      o.depth = depthOf(mn, mx, cam);
-      bodies.push(o);
+        o.min = mn;
+        o.max = mx;
+        o.prints = allPrints.filter(([pi]) => pi === gi).map(([, d]) => worldPrint(p, off, d));
+        // printed lines (whiskers) may reach past the part, keep them inside its screen box
+        const reach = o.hull.slice();
+        for (const d of o.prints) if (d.pts) for (const q of d.pts) reach.push(cam.project(q));
+        o.rect = rectOf(reach, pad);
+        o.depth = depthOf(mn, mx, cam);
+        group.push(o);
+        bodies.push(o);
+      });
+      // the yellow outline goes around every piece of the part, drawn once before the part
+      if (group.length > 1) for (const o of group) o.groupHulls = group.map((g) => g.hull);
     }
     const objs = bodies.slice();
     const index = coverIndex(bodies);
     for (const b of bodies) {
       const p = b.part;
-      for (const s of p.def.studs) {
+      p.def.studs.forEach((s, si) => {
+        if (p.def._studPiece[si] !== b.piece) return;
         // a stud points up the part unless it carries its own axis (studs on the side)
         const ax = mulMV(p.M, s[3] || [0, 0, 1]);
-        if (dot(ax, cam.dir) < -0.02) continue;
+        if (dot(ax, cam.dir) < -0.02) return;
         const C = add(mulMV(p.M, s), b.off);
         if (cull) {
           const a = cam.project(C);
-          if (a[0] < cull[0] || a[0] > cull[2] || a[1] < cull[1] || a[1] > cull[3]) continue;
+          if (a[0] < cull[0] || a[0] > cull[2] || a[1] < cull[1] || a[1] > cull[3]) return;
         }
-        if (covered(madd(C, ax, 0.1), b, bodies, index)) continue;
+        if (covered(madd(C, ax, 0.1), b, bodies, index)) return;
         const mn = [0, 0, 0];
         const mx = [0, 0, 0];
         cylBox(C, ax, STUD_R, STUD_H, mn, mx);
         const cyl = cylGeom(cam, C, ax, STUD_R, STUD_H);
+        // a multi-piece part outlines its studs together with its pieces (see drawHalo)
+        if (b.groupHulls) (b.group.studSils = b.group.studSils || []).push(cyl.sil);
         objs.push({
           type: 'stud', owner: b, rgb: b.rgb, pale: b.pale, halo: b.halo, alpha: b.alpha, edge: b.edge, base: 1,
           cyl, min: mn, max: mx, rect: rectOf(cyl.sil, pad), depth: depthOf(mn, mx, cam), prints: [],
         });
-      }
+      });
     }
     return objs;
   }
@@ -690,15 +1013,27 @@
       // only the part of a stud that sticks out past its own brick
       ctx.beginPath();
       ctx.rect(-1e5, -1e5, 2e5, 2e5);
-      ptsPath(ctx, o.owner.hull);
+      for (const h of o.owner.groupHulls || [o.owner.hull]) ptsPath(ctx, h);
       ctx.clip('evenodd');
     }
     ctx.beginPath();
-    ptsPath(ctx, o.type === 'stud' ? o.cyl.sil : o.hull);
+    const sils = o.type === 'stud' ? [o.cyl.sil] : (o.groupHulls || [o.hull]).concat((o.groupHulls && o.group.studSils) || []);
+    for (const h of sils) ptsPath(ctx, h);
     ctx.lineJoin = 'round';
     ctx.strokeStyle = HALO;
     ctx.lineWidth = lw * 4.6;
     ctx.stroke();
+    if (o.type !== 'stud' && o.groupHulls) {
+      // no yellow lines where pieces meet: cover the inside of every piece and stud again (the
+      // part is painted right after, so the cover ends up under the part itself)
+      ctx.globalAlpha = 1;
+      for (const h of sils) {
+        ctx.beginPath();
+        ptsPath(ctx, h);
+        ctx.fillStyle = tone(o.part.rgb, 1, o.pale);
+        ctx.fill();
+      }
+    }
     ctx.restore();
   }
 
@@ -750,7 +1085,8 @@
     }
     ctx.beginPath();
     ellPath(ctx, c, A, B, n);
-    ctx.fillStyle = tone(COLORS[d.color].rgb, lit, o.pale);
+    // a disc without a colour takes the part's own colour (wheel rims on a black tyre)
+    ctx.fillStyle = tone(d.color ? COLORS[d.color].rgb : o.part.rgb, lit, o.pale);
     ctx.fill();
   }
 
@@ -841,10 +1177,16 @@
     // opt.cull [x0, y0, x1, y1]: small parts and studs outside this screen box are skipped
     const prepped = prep(items, cam, lw * 2.5, o0.cull);
     const objs = o0.fast ? prepped.sort((a, b) => a.base - b.base || a.depth - b.depth) : sortObjs(prepped, cam);
+    // a part made of several pieces gets its outline (around each piece) once, right before the
+    // first of its pieces is painted, so parts behind it do not cover the outline
+    const haloDone = new Set();
     for (const o of objs) {
       ctx.save();
       if (o.alpha < 1) ctx.globalAlpha = o.alpha;
-      if (o.halo > 0) drawHalo(ctx, o, lw);
+      if (o.halo > 0 && !(o.groupHulls && haloDone.has(o.group)) && !(o.type === 'stud' && o.owner.groupHulls)) {
+        drawHalo(ctx, o, lw);
+        if (o.groupHulls) haloDone.add(o.group);
+      }
       if (o.cyl) drawCyl(ctx, cam, o, lw, ea);
       else drawExt(ctx, cam, o, lw, ea);
       ctx.restore();
@@ -859,11 +1201,10 @@
     const mn = [Infinity, Infinity, Infinity];
     const mx = [-Infinity, -Infinity, -Infinity];
     for (const p of parts) {
-      const d = p.def;
-      const top = d.studs.length ? d.h + STUD_H : d.h;
-      for (const x of [0, d.w]) {
-        for (const y of [0, d.d]) {
-          for (const z of [0, top]) {
+      const bx = localBox(p.def);
+      for (const x of [bx.lo[0], bx.hi[0]]) {
+        for (const y of [bx.lo[1], bx.hi[1]]) {
+          for (const z of [bx.lo[2], bx.hi[2]]) {
             const v = add(mulMV(p.M, [x, y, z]), p.off);
             for (let k = 0; k < 3; k++) {
               if (v[k] < mn[k]) mn[k] = v[k];

@@ -341,7 +341,10 @@
         ctx.fillStyle = INK;
         ctx.textAlign = 'left';
         ctx.textBaseline = 'alphabetic';
-        ctx.font = 'bold 112px ' + FONT;
+        // long titles ("Пожарная машина") shrink to fit the frame width
+        let size = 112;
+        ctx.font = 'bold ' + size + 'px ' + FONT;
+        while (size > 56 && ctx.measureText(model.title).width > W - 2 * L.title.x) ctx.font = 'bold ' + (size -= 4) + 'px ' + FONT;
         ctx.fillText(model.title, L.title.x, L.title.y);
         ctx.fillStyle = '#5B6470';
         ctx.font = '40px ' + FONT;

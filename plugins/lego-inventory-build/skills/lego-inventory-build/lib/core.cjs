@@ -60,13 +60,23 @@ function colorKey(c, idSystem) {
 }
 
 // Part number aliases: moulds with a/b suffixes and Rebrickable/BrickLink differences.
-const PART_ALIASES = { '3044': '3044c', '3044b': '3044c', '3062b': '3062', '3062a': '3062', '4073a': '4073', '3070b': '3070', '98138pr': '98138', '87079a': '87079', '3069b': '3069', '3068b': '3068', '4032a': '4032', '4032b': '4032', '3941a': '3941', '6143': '3941' };
+const PART_ALIASES = { '3044': '3044c', '3044b': '3044c', '3062b': '3062', '3062a': '3062', '4073a': '4073', '3070b': '3070', '98138pr': '98138', '87079a': '87079', '3069b': '3069', '3068b': '3068', '4032a': '4032', '4032b': '4032', '3941a': '3941', '6143': '3941',
+  // same shape, other number: brick with wheels (wheel styles), dish with hollow studs, wheel moulds, pins, liftarm with 1 L
+  '4180': '4180c01', '44375a': '44375b', '44375': '44375b', '92402': '55981', '30028': '93594', '2780a': '2780', '6558': '2780', '3673a': '3673' };
 function partId(p) {
   const s = String(p == null ? '' : p).trim();
   if (LEGO.LIB[s]) return s;
   const low = s.toLowerCase();
   if (LEGO.LIB[low]) return low;
   if (PART_ALIASES[low]) return PART_ALIASES[low];
+  // BrickLink variants of one mould: c06 (an assembly variant, e.g. other wheels), pb01 / pr0001
+  // (printed), or a trailing letter (mould revision): the base shape is what we draw
+  const base = low.replace(/(c\d+[a-z]?|p[br]\d+[a-z]*|[a-z])$/, '');
+  if (base !== low) {
+    if (LEGO.LIB[base + 'c01']) return base + 'c01';
+    if (LEGO.LIB[base]) return base;
+    if (PART_ALIASES[base]) return PART_ALIASES[base];
+  }
   return s;
 }
 const drawable = (id) => !!LEGO.LIB[id];
@@ -75,7 +85,7 @@ function catalog() {
   return {
     parts: LEGO.ORDER.map((id) => {
       const d = LEGO.LIB[id];
-      return { id, name: d.ru, w: d.w, d: d.d, plates: Math.round(d.h / LEGO.PLATE), shape: d.kind === 'cyl' ? 'round' : d.profile.length === 4 ? (d.studs.length ? 'box' : 'tile') : 'slope', studs: d.studs.length };
+      return { id, name: d.ru, w: d.w, d: d.d, plates: Math.round(d.h / LEGO.PLATE), shape: d.shape || (d.kind === 'cyl' ? 'round' : d.profile.length === 4 ? (d.studs.length ? 'box' : 'tile') : 'slope'), studs: d.studs.length, ...(d.joints ? { technic: d.joints.map((j) => j.t) } : {}) };
     }),
     colors: Object.values(LEGO.COLORS).map((c) => ({ key: c.key, name: c.name, ru: c.ru, hex: c.hex, bricklink: c.bl, rebrickable: c.rb })),
   };
@@ -191,41 +201,81 @@ function bom(model) {
   }).sort((a, b) => a.color.localeCompare(b.color) || a.id.localeCompare(b.id));
 }
 
-// The geometric check from upstream: no overlaps, everything held by a chain of stud
-// connections down to the ground.
+// The geometric check from upstream: no overlaps, everything held by a chain of connections down
+// to the ground. Connections: studs (a part sits on another, or on a side stud), and technic
+// joints (a pin or axle inside a hole of another part, both along the same line).
+// Simple parts collide as their grid box; complex parts (wheels, frames, liftarms) as the boxes
+// of their pieces, so a wheel can sit next to a brick and a cage can stand over a plate.
 function checkGeometry(model) {
   const specs = model.steps.flat();
   const parts = specs.map((s) => LEGO.place(s));
-  const box = (p) => {
-    const d = p.def;
+  const xf = (p, v) => [0, 1, 2].map((k) => p.M[k][0] * v[0] + p.M[k][1] * v[1] + p.M[k][2] * v[2] + p.off[k]);
+  const dirOf = (p, v) => [0, 1, 2].map((k) => p.M[k][0] * v[0] + p.M[k][1] * v[1] + p.M[k][2] * v[2]);
+  const boxOf = (p, lo0, hi0) => {
     const lo = [Infinity, Infinity, Infinity];
     const hi = [-Infinity, -Infinity, -Infinity];
-    for (const x of [0, d.w]) for (const y of [0, d.d]) for (const z of [0, d.h]) {
-      const v = [0, 1, 2].map((k) => p.M[k][0] * x + p.M[k][1] * y + p.M[k][2] * z + p.off[k]);
+    for (const x of [lo0[0], hi0[0]]) for (const y of [lo0[1], hi0[1]]) for (const z of [lo0[2], hi0[2]]) {
+      const v = xf(p, [x, y, z]);
       for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], v[k]); hi[k] = Math.max(hi[k], v[k]); }
     }
     return { lo, hi };
   };
-  const B = parts.map(box);
+  // grid box (for stud stacking) and collision boxes (pieces) of every part
+  const B = parts.map((p) => boxOf(p, [0, 0, 0], [p.def.w, p.def.d, p.def.h]));
+  const C = parts.map((p) => LEGO.collidersOf(p.def).map((c) => boxOf(p, c.lo, c.hi)));
+  const J = parts.map((p) => LEGO.jointsOf(p.def).map((j) => {
+    const a = dirOf(p, j.a);
+    const p0 = xf(p, j.p);
+    return { p0, a, len: j.len, t: j.t, p1: p0.map((v, k) => v + a[k] * j.len) };
+  }));
   const stepOf = specs.map((s) => 1 + model.steps.findIndex((st) => st.includes(s)));
   const label = (i) => `step ${stepOf[i]}: ${specs[i].id} ${specs[i].color} at [${specs[i].at}]`;
   const overlap = (a, b, k) => Math.min(a.hi[k], b.hi[k]) - Math.max(a.lo[k], b.lo[k]);
+  // plain parts keep the old exact rule; complex parts get a little tolerance for round shapes
+  const hits = (a, b, loose) => [0, 1, 2].every((k) => overlap(a, b, k) > (loose ? 0.02 : EPS));
   const sideAxis = (i) => {
     const up = specs[i].up;
     return !up || up === '+z' ? -1 : 'xyz'.indexOf(up[1]);
   };
+  // side studs in world space (brackets, SNOT bricks): a part flush against them is held
+  const sideStuds = parts.map((p) => p.def.studs.filter((s) => s[3]).map((s) => ({ c: xf(p, s), n: dirOf(p, s[3]) })));
+  const heldBySideStud = (i, j) => sideStuds[i].some((s) => {
+    const k = [0, 1, 2].find((m) => Math.abs(s.n[m]) > 0.5);
+    const face = s.n[k] > 0 ? B[j].lo[k] : B[j].hi[k];
+    if (Math.abs(face - s.c[k]) > 0.05) return false;
+    return [0, 1, 2].filter((m) => m !== k).every((m) => s.c[m] > B[j].lo[m] + 0.2 && s.c[m] < B[j].hi[m] - 0.2);
+  });
+  // two joints on one line that overlap along it by at least half a stud: pin in hole, axle in wheel
+  const MALE = { pin: 1, axle: 1 };
+  const jointLink = (i, j) => J[i].some((a) => J[j].some((b) => {
+    if (!(MALE[a.t] || MALE[b.t])) return false;
+    if (Math.abs(Math.abs(a.a[0] * b.a[0] + a.a[1] * b.a[1] + a.a[2] * b.a[2]) - 1) > 1e-3) return false;
+    const d = b.p0.map((v, k) => v - a.p0[k]);
+    const t = d[0] * a.a[0] + d[1] * a.a[1] + d[2] * a.a[2];
+    const off = Math.hypot(d[0] - t * a.a[0], d[1] - t * a.a[1], d[2] - t * a.a[2]);
+    if (off > 0.05) return false;
+    const tb = [t, t + b.len * (b.a[0] * a.a[0] + b.a[1] * a.a[1] + b.a[2] * a.a[2])];
+    const ov = Math.min(a.len, Math.max(...tb)) - Math.max(0, Math.min(...tb));
+    return ov >= 0.45;
+  }));
+  const pinned = (i, j) => (J[i].some((a) => MALE[a.t]) || J[j].some((b) => MALE[b.t])) && jointLink(i, j);
   const problems = [];
   const links = B.map(() => []);
   for (let i = 0; i < B.length; i++) {
     for (let j = i + 1; j < B.length; j++) {
       const a = B[i];
       const b = B[j];
-      if ([0, 1, 2].every((k) => overlap(a, b, k) > EPS)) {
+      const joined = pinned(i, j);
+      // a pin goes inside its hole: pieces of linked technic parts may overlap
+      const loose = !!(parts[i].def.pieces || parts[j].def.pieces);
+      if (!joined && C[i].some((ca) => C[j].some((cb) => hits(ca, cb, loose)))) {
         problems.push({ type: 'overlap', message: 'OVERLAP  ' + label(i) + '  |  ' + label(j) });
         continue;
       }
       const stacked = overlap(a, b, 0) > EPS && overlap(a, b, 1) > EPS &&
-        (Math.abs(a.hi[2] - b.lo[2]) < EPS || Math.abs(b.hi[2] - a.lo[2]) < EPS);
+        (Math.abs(a.hi[2] - b.lo[2]) < EPS || Math.abs(b.hi[2] - a.lo[2]) < EPS) &&
+        // stacking needs studs on the lower part's top, or the upper part is a plain brick bottom
+        studsFace(i, j);
       let side = false;
       for (const [p, q] of [[i, j], [j, i]]) {
         const k = sideAxis(p);
@@ -234,12 +284,26 @@ function checkGeometry(model) {
         const touching = Math.abs(B[p].hi[k] - B[q].lo[k]) < EPS || Math.abs(B[p].lo[k] - B[q].hi[k]) < EPS;
         if (touching && others.every((m) => overlap(B[p], B[q], m) > EPS)) side = true;
       }
-      if (stacked || side) { links[i].push(j); links[j].push(i); }
+      if (heldBySideStud(i, j) || heldBySideStud(j, i)) side = true;
+      if (stacked || side || joined) { links[i].push(j); links[j].push(i); }
     }
+  }
+  // a part may only be held by studs on a face that has studs under the other part's footprint
+  function studsFace(i, j) {
+    const [lo, hi] = B[i].hi[2] <= B[j].lo[2] + EPS ? [i, j] : [j, i];
+    const top = B[lo].hi[2];
+    const tops = parts[lo].def.studs.filter((s) => !s[3]).map((s) => xf(parts[lo], s)).filter((c) => Math.abs(c[2] - top) < 0.05);
+    if (!parts[lo].def.pieces && !parts[hi].def.pieces) return true; // plain parts: unchanged rule
+    return tops.some((c) => c[0] > B[hi].lo[0] && c[0] < B[hi].hi[0] && c[1] > B[hi].lo[1] && c[1] < B[hi].hi[1]);
   }
   const held = new Uint8Array(B.length);
   const queue = [];
-  B.forEach((b, i) => { if (Math.abs(b.lo[2]) < EPS) { held[i] = 1; queue.push(i); } });
+  // on the ground: the lowest point of the part (wheels reach below the grid box)
+  B.forEach((b, i) => {
+    const low = Math.min(...C[i].map((c) => c.lo[2]));
+    if (low < -EPS) problems.push({ type: 'below', message: 'BELOW    ' + label(i) });
+    if (Math.abs(low) < (C[i].length > 1 || parts[i].def.pieces ? 0.02 : EPS)) { held[i] = 1; queue.push(i); }
+  });
   while (queue.length) {
     const i = queue.shift();
     for (const j of links[i]) if (!held[j]) { held[j] = 1; queue.push(j); }
