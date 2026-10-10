@@ -95,7 +95,14 @@ if (process.env.PILE) {
   const drawable = pj.parts.filter((p) => p.drawable).reduce((a, p) => a + p.qty, 0);
   if (process.env.PILE_JSON) fs.writeFileSync(process.env.PILE_JSON, JSON.stringify(pj, null, 1));
   ok(`pile photo: ${pj.totalParts} parts recognised in ${((Date.now() - t0) / 1000).toFixed(0)}s, ${drawable} usable in models`);
-  const ps = JSON.parse((await c.callTool({ name: 'ideas_suggest', arguments: {} })).content[0].text);
+  const psr = await c.callTool({ name: 'ideas_suggest', arguments: {} });
+  const ps = JSON.parse(psr.content[0].text);
+  const card = psr.structuredContent;
+  assert.equal(card.kind, 'ideas');
+  const thumbs = await Promise.all(card.ideas.map(async (x) => (x.thumbUrl ? (await fetch(x.thumbUrl)).status : 0)));
+  assert.ok(thumbs.length && thumbs.every((s) => s === 200), 'idea thumbnails: ' + thumbs.join(','));
+  if (process.env.IDEAS_OUT) fs.writeFileSync(process.env.IDEAS_OUT, JSON.stringify(card));
+  ok(`ideas card: ${card.ideas.map((x) => `${x.title} ${x.parts}`).join(', ')}; ${thumbs.length} pictures from the user's parts, HTTP 200`);
   assert.ok(ps.buildable.length > 0, 'no buildable ideas from the pile');
   const pidea = ps.buildable[0].idea;
   await c.callTool({ name: 'idea_build', arguments: { idea: pidea } });
