@@ -176,6 +176,16 @@ export function buildServer(opts) {
     return text({ ok: !bad.length, unknownColours: bad, inventoryLines: saved.items.length });
   }));
 
+  s.registerTool('inventory_undo', {
+    title: 'Bring back the previous parts list',
+    description: 'Use this when the user wants the parts list from before the last photo or import back (a photo replaces the saved list). Swaps the current list with the previous one, so calling it again redoes.',
+    annotations: hints(false, true, true, false),
+  }, safe(async () => {
+    const r = core.undoInventory();
+    if (!r) return text('There is no previous parts list to bring back.');
+    return text({ restored: true, totalParts: r.items.reduce((a, x) => a + x.qty, 0), sources: r.sources });
+  }));
+
   s.registerTool('inventory_clear', {
     title: 'Clear inventory',
     description: 'Delete all parts from the inventory. Only when the user explicitly asks.',
@@ -231,20 +241,21 @@ export function buildServer(opts) {
 
   s.registerTool('parts_from_pile_photo', {
     title: 'Recognise a pile of parts',
-    description: 'Use this whenever the user uploads a photo with MANY LEGO parts (laid out on a table, a tray, a pile), before anything else. Pass the uploaded file, do not read the photo yourself. The server finds every separate part on the photo, recognises each one (part number + colour) and returns the counts; with add=true they are added to the inventory. Works best when parts do not touch and the background is plain. Takes 5-30 s.',
+    description: 'Use this whenever the user uploads a photo with MANY LEGO parts (laid out on a table, a tray, a pile), before anything else. Pass the uploaded file, do not read the photo yourself. The server finds every separate part on the photo, recognises each one (part number + colour) and returns the counts. By default the recognised parts REPLACE the saved list (a new photo is the pile the user has now; the previous list is kept for inventory_undo). Pass mode="add" only when the user says the photo shows MORE parts in addition to what was saved (e.g. a second photo of the same pile in one go: send all photos in one call instead). Works best when parts do not touch and the background is plain. Takes 5-40 s.',
     inputSchema: {
       files: z.array(FileObj).optional().describe('uploaded photos (ChatGPT)'),
       images: z.array(z.string()).optional().describe('photos as URLs, file paths, data: URLs or base64'),
-      add: z.boolean().optional().describe('add the recognised parts to the inventory (default true)'),
-      replace: z.boolean().optional().describe('replace the inventory instead of adding'),
+      mode: z.enum(['replace', 'add', 'none']).optional().describe('replace (default): the photo becomes the parts list; add: add to the saved list; none: only show what was recognised'),
+      add: z.boolean().optional().describe('deprecated: false = mode "none"'),
+      replace: z.boolean().optional().describe('deprecated: true = mode "replace"'),
     },
-    annotations: hints(false, true, false, true), // replace=true wipes the inventory
+    annotations: hints(false, true, false, true), // replaces the saved list (undo with inventory_undo)
     _meta: { 'openai/fileParams': ['files'] },
-  }, safe(async ({ files, images, add, replace }) => {
+  }, safe(async ({ files, images, mode, add, replace }) => {
     const srcs = [...(files || []).map((f) => f.download_url), ...(images || [])];
     if (!srcs.length) throw new Error('pass "files" (the uploaded photo) or "images"');
+    const md = mode || (add === false ? 'none' : replace === false ? 'add' : 'replace');
     const inv = core.loadInventory();
-    if (replace) { inv.items = []; inv.sources = []; }
     const photos = [];
     const all = new Map();
     for (const src of srcs.slice(0, 6)) {
@@ -265,7 +276,13 @@ export function buildServer(opts) {
       }
     }
     const items = [...all.values()];
-    if (add !== false) {
+    let previous;
+    if (md !== 'none' && items.length) {
+      if (md === 'replace' && inv.items.length) {
+        core.backupInventory(inv);
+        previous = inv.items.reduce((a, x) => a + x.qty, 0);
+        inv.items = []; inv.sources = [];
+      }
       inv.items.push(...items.map((it) => ({ id: it.id, color: it.color, qty: it.qty })));
       inv.sources.push(`pile photo ×${srcs.length}`);
       core.saveInventory(inv);
@@ -275,8 +292,11 @@ export function buildServer(opts) {
       photos,
       totalParts: total,
       parts: items.map((it) => ({ id: it.id, name: it.name, color: it.color, qty: it.qty, unsure: it.unsure || undefined, drawable: core.drawable(it.id) })),
-      added: add !== false,
-      next: 'Show this list to the user as a table (part, name, colour, qty), mention unsure lines and that touching parts may be counted as one. Fix with inventory_update if the user corrects it. Then ideas_suggest.',
+      mode: md,
+      added: md !== 'none' && items.length > 0,
+      ...(previous ? { replacedPrevious: `${previous} parts saved before were replaced by this photo (inventory_undo brings them back)` } : {}),
+      next: 'Show this list to the user as a table (part, name, colour, qty), mention unsure lines and that touching parts may be counted as one. Fix with inventory_update if the user corrects it. Then ideas_suggest.' +
+        (previous ? ' Tell the user in one short line that the old list was replaced and can be restored.' : ''),
     });
   }));
 

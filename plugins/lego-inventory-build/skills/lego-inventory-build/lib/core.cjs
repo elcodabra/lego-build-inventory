@@ -340,6 +340,23 @@ function saveInventory(inv) {
   return Object.assign(out, { file: inv.file });
 }
 
+// The previous parts list, kept when a photo replaces the saved one (one level, swap = undo/redo).
+// Lives next to inventory.json, so the hosted store saves and restores it with the user's state.
+function previousInventoryPath(inv) { return path.join(path.dirname(inv.file || defaultInventoryPath()), 'inventory.prev.json'); }
+function backupInventory(inv) {
+  const p = previousInventoryPath(inv);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, JSON.stringify({ updated: new Date().toISOString(), sources: inv.sources || [], items: mergeItems(inv.items) }, null, 2) + '\n');
+}
+function undoInventory(file) {
+  const cur = loadInventory(file);
+  const p = previousInventoryPath(cur);
+  if (!fs.existsSync(p)) return null;
+  const prev = JSON.parse(fs.readFileSync(p, 'utf8'));
+  backupInventory(cur);
+  return saveInventory({ file: cur.file, sources: prev.sources || [], items: prev.items || [] });
+}
+
 function mergeItems(items) {
   const map = new Map();
   for (const it of items) {
@@ -532,6 +549,6 @@ const duration = (model) => 0.55 + (model.step || 0.85) * model.steps.length + 0
 module.exports = {
   ROOT, ctx, safeMode, dataDir, get DATA_DIR() { return dataDir(); }, LEGO, colorKey, partId, drawable, catalog,
   loadModel, listModels, validateModel, saveModel, bom, checkGeometry, duration,
-  defaultInventoryPath, loadInventory, saveInventory, parseInventory, fetchSet, mergeItems,
+  defaultInventoryPath, loadInventory, saveInventory, backupInventory, undoInventory, parseInventory, fetchSet, mergeItems,
   summarizeInventory, fitInventory, fullCheck, formatCheck,
 };

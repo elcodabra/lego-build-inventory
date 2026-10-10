@@ -1,4 +1,5 @@
-// Per-user state store for the hosted server: inventory.json + models/*.json of one user.
+// Per-user state store for the hosted server: inventory.json (+ inventory.prev.json, the list a
+// photo replaced, for undo) + models/*.json of one user.
 //
 // Redis (Upstash REST, KV_REST_API_URL/TOKEN) is the primary store: the whole state of a user is
 // ONE key (gzip+base64 JSON with a version number), read with one GET and written with one Lua
@@ -18,7 +19,7 @@ export const backend = REDIS_URL && REDIS_TOKEN ? 'redis' : STATE_BLOB ? 'blob' 
 const NS = process.env.LEGO_REDIS_PREFIX || 'lego'; // tests use their own prefix
 
 const LOCAL_STORE = path.join('/tmp/lego', '_store');
-const FILE = /^(inventory\.json|models\/[a-z0-9_-]{1,64}\.json)$/;
+const FILE = /^(inventory(\.prev)?\.json|models\/[a-z0-9_-]{1,64}\.json)$/;
 const MAX_STATE = 2 * 1024 * 1024; // compressed bytes per user
 const hash = (buf) => crypto.createHash('sha1').update(buf).digest('hex');
 
@@ -99,7 +100,7 @@ export async function load(user, dir) {
   } else {
     const base = path.join(LOCAL_STORE, user);
     const rels = [];
-    if (fs.existsSync(path.join(base, 'inventory.json'))) rels.push('inventory.json');
+    for (const f of ['inventory.json', 'inventory.prev.json']) if (fs.existsSync(path.join(base, f))) rels.push(f);
     if (fs.existsSync(path.join(base, 'models'))) for (const f of fs.readdirSync(path.join(base, 'models'))) rels.push('models/' + f);
     for (const rel of rels.filter((r) => FILE.test(r))) files[rel] = fs.readFileSync(path.join(base, rel), 'utf8');
   }
@@ -113,7 +114,7 @@ export async function load(user, dir) {
 
 function readDir(dir) {
   const files = {};
-  if (fs.existsSync(path.join(dir, 'inventory.json'))) files['inventory.json'] = fs.readFileSync(path.join(dir, 'inventory.json'), 'utf8');
+  for (const f of ['inventory.json', 'inventory.prev.json']) if (fs.existsSync(path.join(dir, f))) files[f] = fs.readFileSync(path.join(dir, f), 'utf8');
   for (const f of fs.readdirSync(path.join(dir, 'models'))) if (FILE.test('models/' + f)) files['models/' + f] = fs.readFileSync(path.join(dir, 'models', f), 'utf8');
   return files;
 }

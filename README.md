@@ -104,9 +104,10 @@ Environment: `AUTH_ISSUER`, `AUTH_RESOURCES`, `AUTH_SIGNING_KEY` (private ES256 
 | Tool | What it does |
 |---|---|
 | `parts_from_photo` | photos of single parts → part number and colour (Brickognize), `add=true` adds them to the inventory. In ChatGPT it accepts uploaded files (`openai/fileParams`) |
+| `parts_from_pile_photo` | a photo of a whole pile → every part found and recognised. The result replaces the saved list by default (`mode: "add"` adds, `"none"` only reports); the previous list is kept, `inventory_undo` brings it back |
 | `lego_photo_guide` | how to read a pile of parts from a photo by eye and write a CSV |
 | `ideas_suggest` / `idea_build` | what can be built from the inventory right now and what is close; generate the chosen idea |
-| `inventory_show` / `inventory_import` / `inventory_add_set` / `inventory_update` / `inventory_clear` | parts inventory: CSV, Rebrickable CSV, BrickLink XML, JSON, set numbers (needs `REBRICKABLE_API_KEY`) |
+| `inventory_show` / `inventory_import` / `inventory_add_set` / `inventory_update` / `inventory_undo` / `inventory_clear` | parts inventory: CSV, Rebrickable CSV, BrickLink XML, JSON, set numbers (needs `REBRICKABLE_API_KEY`) |
 | `lego_guide`, `lego_catalog` | modelling rules, parts and colours the engine can draw |
 | `model_check` | overlaps, floating parts, parts missing from the inventory plus spare substitutes |
 | `model_bom` | parts list (CSV for a BrickLink wanted list) |

@@ -37,7 +37,8 @@ function resultFacts(tool, payload) {
       const b = o.buildable || [];
       return { buildable: b.length, almost: (o.almost || o.close || []).length, top_idea: b[0] && b[0].idea, top_uses_percent: b[0] && b[0].usesPercent, drawable_parts: o.drawableParts };
     }
-    if (tool === 'parts_from_pile_photo' || tool === 'parts_from_photo') return { recognised: Array.isArray(o.results) ? o.results.length : o.total, added: o.added };
+    if (tool === 'parts_from_pile_photo' || tool === 'parts_from_photo') return { recognised: Array.isArray(o.results) ? o.results.length : (o.totalParts ?? o.total), added: o.added, pile_mode: o.mode, replaced_previous: o.replacedPrevious ? true : undefined };
+    if (tool === 'inventory_undo') return { restored: !!o.restored, total_parts: o.totalParts };
     if (tool === 'inventory_import') return { lines: o.imported, format: o.format };
     if (tool === 'inventory_show') return { total_parts: o.totalParts };
     return {};

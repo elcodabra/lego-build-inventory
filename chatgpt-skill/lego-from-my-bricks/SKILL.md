@@ -20,7 +20,7 @@ Check which tools are available first; prefer A.
 ## MCP flow
 
 1. **Parts.**
-   - Photo with many parts → call `parts_from_pile_photo` with the uploaded file (`files`). Do not describe the photo yourself first, and never write a parts list by eye with `inventory_import` when the photo can be passed (the server recognises far more parts).
+   - Photo with many parts → call `parts_from_pile_photo` with the uploaded file (`files`). Do not describe the photo yourself first, and never write a parts list by eye with `inventory_import` when the photo can be passed (the server recognises far more parts). A new photo replaces the saved list (send several photos of one pile in one call); `inventory_undo` brings the previous list back. Use `mode: "add"` only when the user says the photo adds to what was saved.
    - Photos with one part each → `parts_from_photo` (`add: true`, `qty` = how many of that part the user has).
    - A text list, a set number → `inventory_import` / `inventory_add_set`.
    - Show the recognised parts as a compact table and ask only about lines marked unsure. Fix with `inventory_update`.
