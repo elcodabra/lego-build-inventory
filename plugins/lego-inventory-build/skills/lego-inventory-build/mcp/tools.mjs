@@ -450,8 +450,12 @@ export function buildServer(opts) {
     let videoUrl = null;
     let youtubeUrl = null;
     if (md === 'video') {
+      // stage timings go to the server log (Vercel), so slow renders can be traced to a stage
+      const t0 = Date.now();
       const r = await film.render(m, path.join(exportsDir(), base + '.mp4'), { format });
+      const t1 = Date.now();
       videoUrl = await fileUrl(r.file);
+      console.log(JSON.stringify({ ev: 'video', frames: r.frames, render_ms: t1 - t0, upload_ms: Date.now() - t1, bytes: fs.statSync(r.file).size }));
       // the host may copy the film elsewhere (the hosted server: the owner's YouTube channel);
       // it returns a link only when one already exists, the upload itself runs after the reply
       if (opts && opts.onVideo) youtubeUrl = await opts.onVideo(r.file, { title: m.title, parts: m.steps.flat().length, steps: m.steps.length, format: format || 'vertical' }).catch(() => null);
