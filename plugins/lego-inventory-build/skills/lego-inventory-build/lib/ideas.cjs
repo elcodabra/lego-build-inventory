@@ -560,64 +560,133 @@ const GENERATORS = {
       return steps;
     },
   },
-  // A truck on two wheel bricks (4180): chassis plates over them, a cab in front, and a ladder
-  // (70646) laid over the cab and a rear post if you have one, else a cargo bed.
+  // A fire truck that drives along y (front towards the viewer): two wheel bricks (4180) give
+  // four wheels on the sides, a 4-wide deck of plates over them, a cab at the front (the roll
+  // cage 64450 if you have it, else a box or bricks), a turret at the back, and the ladder (70646)
+  // laid from the cab roof to the turret top. Without a ladder the back becomes a cargo bed.
   firetruck: {
     title: 'Пожарная машина',
-    about: 'Машина на кирпичах с колёсами: шасси, кабина и лестница (или кузов)',
-    sizes: [{ L: 12, label: 'длинная' }, { L: 10, label: 'средняя' }, { L: 8, label: 'короткая' }],
+    about: 'Машина на кирпичах с колёсами: кабина, поворотная башня и лестница (или кузов)',
+    sizes: [{ L: 12, label: 'длинная' }, { L: 10, label: 'средняя' }],
     theta: 35,
+    phi: 26,
     build(S, { L }, notes) {
       const steps = [];
+      const W = 4;
+      // wheels: the brick is 4 along x (wheels on both x sides), 2 along y
       const wheels = [];
-      for (const x of [0, L - 4]) {
+      for (const y of [1, L - 3]) {
         const c = order(S, ['black', 'dbg', 'lbg', 'red', 'white', 'blue', 'azure', 'yellow'], 'wheels').find((cc) => S.n('4180c01', cc) > 0) || (S.shopping ? 'black' : null);
         need(c && S.take('4180c01', c), 'нужно 2 кирпича с колёсами (4180)');
-        wheels.push({ id: '4180c01', color: c, at: [x, 0, 0] });
+        wheels.push({ id: '4180c01', color: c, at: [0, y, 0] });
       }
       steps.push(wheels);
-      const body = ['red', 'blue', 'yellow', 'white', 'lbg', 'dbg', 'black', 'green', 'azure', 'orange'];
-      steps.push(need(row(S, { kind: 'plate', width: 2, x: 0, y: 0, z: 6, L, colors: order(S, body, 'plate') }), 'шасси').parts);
-      const z = 7;
-      // cab: a 2x2x2 box (4345), else two 2x2 bricks
-      let cab = null;
-      for (const c of order(S, body, null)) if (S.n('4345', c) > 0) { S.take('4345', c); cab = [{ id: '4345', color: c, at: [L - 2, 0, z] }]; break; }
-      if (!cab) {
-        cab = oneColor(S, order(S, body, 'brick'), (cs) => [
-          ...need(row(S, { kind: 'brick', width: 2, x: L - 2, y: 0, z, L: 2, colors: cs })).parts,
-          ...need(row(S, { kind: 'brick', width: 2, x: L - 2, y: 0, z: z + 3, L: 2, colors: cs })).parts,
-        ], notes, 'кабина').result;
-      }
-      steps.push(cab);
-      const extra = [];
-      const lights = optional(S, ['15209'], ['white', 'lbg', 'yellow', 'red', 'black'], [L - 4, 0, z]);
-      if (lights) extra.push(lights);
-      const ladderC = ['white', 'lbg', 'yellow', 'dbg', 'black'].find((c) => S.n('70646', c) > 0);
-      if (ladderC && !S.shopping) {
-        // a rear post of two 2x2 bricks carries the back of the ladder, if there are bricks for it
+      const body = ['red', 'blue', 'black', 'dbg', 'lbg', 'white', 'yellow', 'azure', 'green', 'orange'];
+      // deck, layer 1 across the wheel bricks: as few big 4-wide plates as possible (4x8, 4x6,
+      // 4x4: fewer pieces, and 4x4 plates stay free for the turret), else rows of plates
+      const BIG4 = { 8: '3035', 6: '3032', 4: '3031' };
+      const deck1 = (() => {
+        for (const c of order(S, body, 'plate')) {
+          let best = null;
+          const dfs = (rem, acc, avail) => {
+            if (rem === 0) { if (!best || acc.length < best.length) best = acc.slice(); return; }
+            for (const n of [8, 6, 4]) if (n <= rem && avail[n] > 0) { avail[n]--; acc.push(n); dfs(rem - n, acc, avail); acc.pop(); avail[n]++; }
+          };
+          dfs(L, [], { 8: S.n('3035', c), 6: S.n('3032', c), 4: S.n('3031', c) });
+          if (!best) continue;
+          const parts = [];
+          let y = 0;
+          for (const n of best.sort((a, b) => b - a)) {
+            S.take(BIG4[n], c);
+            parts.push({ id: BIG4[n], color: c, at: [0, y, 6], ...(n === 4 ? {} : { rot: 1 }) });
+            y += n;
+          }
+          return parts;
+        }
+        return need(area(S, { kind: 'plate', x: 0, y: 0, z: 6, W, D: L, dir: 'y', colors: order(S, body, 'plate') }), 'платформа').parts;
+      })();
+      steps.push(deck1);
+      // deck, layer 2: two long 2-wide runs along the truck lock layer 1 together (optional)
+      let top = 7;
+      {
         const snap = S.snap();
-        let post = null;
         try {
-          post = oneColor(S, order(S, body, 'brick'), (cs) => [
-            ...need(row(S, { kind: 'brick', width: 2, x: 0, y: 0, z, L: 2, colors: cs })).parts,
-            ...need(row(S, { kind: 'brick', width: 2, x: 0, y: 0, z: z + 3, L: 2, colors: cs })).parts,
+          const l2 = oneColor(S, order(S, ['black', 'dbg', 'lbg', 'red', 'blue', 'white'], 'plate'), (cs) => [
+            ...need(row(S, { kind: 'plate', width: 2, x: 0, y: 0, z: 7, L, dir: 'y', colors: cs })).parts,
+            ...need(row(S, { kind: 'plate', width: 2, x: 2, y: 0, z: 7, L, dir: 'y', colors: cs })).parts,
           ]).result;
+          steps.push(l2);
+          top = 8;
         } catch (e) { if (!(e instanceof Fail)) throw e; S.restore(snap); }
-        S.take('70646', ladderC);
-        if (post) extra.push(...post);
-        steps.push(extra);
-        steps.push([{ id: '70646', color: ladderC, at: [L - 14, -0.25, z + 6] }]);
+      }
+      // cab at the front: roll cage (10 plates high, 4x6), else a box / two 2x2 bricks (6 high)
+      let cabH;
+      let cabD;
+      const cage = ['black', 'red', 'dbg', 'lbg', 'white', 'yellow', 'blue'].find((c) => S.n('64450', c) > 0);
+      if (cage && !S.shopping && L >= 10) {
+        S.take('64450', cage);
+        steps.push([{ id: '64450', color: cage, at: [0, 0, top] }]);
+        cabH = 10; cabD = 6;
       } else {
-        // cargo bed: low walls of 1-wide bricks along both sides behind the cab
+        let cab = null;
+        for (const c of order(S, body, null)) if (S.n('4345', c) > 0) { S.take('4345', c); cab = [{ id: '4345', color: c, at: [1, 0, top] }]; break; }
+        if (!cab) {
+          cab = oneColor(S, order(S, body, 'brick'), (cs) => [
+            ...need(row(S, { kind: 'brick', width: 2, x: 1, y: 0, z: top, L: 2, colors: cs })).parts,
+            ...need(row(S, { kind: 'brick', width: 2, x: 1, y: 0, z: top + 3, L: 2, colors: cs })).parts,
+          ], notes, 'кабина').result;
+        }
+        steps.push(cab);
+        cabH = 6; cabD = 2;
+      }
+      const ladderC = ['white', 'lbg', 'yellow', 'dbg', 'black', 'red'].find((c) => S.n('70646', c) > 0);
+      if (ladderC && !S.shopping) {
+        // turret at the back: a 4x4 base (round if you have it), a column, flat top at cab height
+        const ty = L - 4;
+        if (ty < cabD) throw new Fail('коротко для башни');
+        const tz = top;
+        const baseColors = order(S, ['tan', 'lbg', 'dbg', 'black', 'red', 'blue', 'white', 'yellow'], null);
+        const base = optional(S, ['60474'], baseColors, [0, ty, tz]) || optional(S, ['3031'], baseColors, [0, ty, tz]);
+        const turret = [];
+        let z = tz;
+        if (base) { turret.push(base); z += 1; }
+        let left = tz + cabH - z;
+        // the head of the turret is a 2x2x2 box (6 plates) if there is one; below it, as many
+        // 4x4 plates as needed (2x2 bricks / plates when there are no 4x4 plates)
+        const boxC = left >= 6 ? order(S, ['red', 'black', 'dbg', 'lbg', 'blue', 'white', 'yellow'], null).find((c) => S.n('4345', c) > 0) : null;
+        let below = boxC ? left - 6 : left;
+        let width = base ? 4 : 2;
+        while (below >= 3 && width === 2) {
+          const r = row(S, { kind: 'brick', width: 2, x: 1, y: ty + 1, z, L: 2, colors: order(S, body, 'brick') });
+          if (!r) break;
+          turret.push(...r.parts); z += 3; below -= 3;
+        }
+        while (below >= 1) {
+          let p = null;
+          const opts = [[4, '3031', 0], [2, '3022', 1]].filter(([w]) => w <= width);
+          for (const [w, id, off] of opts) {
+            for (const c of order(S, body, 'plate')) if (S.n(id, c) > 0) { S.take(id, c); p = { id, color: c, at: [off, ty + off, z] }; width = w; break; }
+            if (p) break;
+          }
+          if (!p) break;
+          turret.push(p); z += 1; below -= 1;
+        }
+        if (below > 0) throw new Fail('башня: не хватило деталей до высоты кабины');
+        if (boxC) { S.take('4345', boxC); turret.push({ id: '4345', color: boxC, at: [1, ty + 1, z] }); z += 6; }
+        steps.push(turret);
+        S.take('70646', ladderC);
+        // the ladder runs along y over the cab roof and the turret top, centred on the truck
+        steps.push([{ id: '70646', color: ladderC, at: [0.75, L / 2 - 8, tz + cabH], rot: 1 }]);
+      } else {
+        // cargo bed: low side walls of 1-wide bricks behind the cab
         const snap = S.snap();
         try {
           const bed = oneColor(S, order(S, body, 'brick'), (cs) => [
-            ...need(row(S, { kind: 'brick', width: 1, x: 0, y: 0, z, L: L - 4, colors: cs })).parts,
-            ...need(row(S, { kind: 'brick', width: 1, x: 0, y: 1, z, L: L - 4, colors: cs })).parts,
+            ...need(row(S, { kind: 'brick', width: 1, x: 0, y: cabD, z: top, L: L - cabD, dir: 'y', colors: cs })).parts,
+            ...need(row(S, { kind: 'brick', width: 1, x: 3, y: cabD, z: top, L: L - cabD, dir: 'y', colors: cs })).parts,
           ]).result;
-          extra.push(...bed);
-        } catch (e) { if (!(e instanceof Fail)) throw e; S.restore(snap); }
-        if (extra.length) steps.push(extra);
+          steps.push(bed);
+        } catch (e) { if (!(e instanceof Fail)) throw e; S.restore(snap); notes.push('без кузова: не хватило кирпичей 1×N'); }
       }
       return steps;
     },
