@@ -617,8 +617,14 @@ async function segment(img, opts) {
     const m = Math.max(6, 0.15 * Math.max(b.x1 - b.x0, b.y1 - b.y0));
     const sx = Math.max(0, (b.x0 - m) / S); const sy = Math.max(0, (b.y0 - m) / S);
     const sw = Math.min(im.width - sx, (b.x1 - b.x0 + 2 * m) / S); const sh = Math.min(im.height - sy, (b.y1 - b.y0 + 2 * m) / S);
-    const cc = createCanvas(Math.round(sw), Math.round(sh));
-    cc.getContext('2d').drawImage(im, sx, sy, sw, sh, 0, 0, Math.round(sw), Math.round(sh));
+    // a small crop (a downscaled upload, a small part) is enlarged to at least 224 px on its long
+    // side: the recogniser works on bigger inputs and does much worse on tiny ones
+    const up = Math.max(1, Math.min(3, 224 / Math.max(sw, sh)));
+    const cw = Math.round(sw * up); const ch = Math.round(sh * up);
+    const cc = createCanvas(cw, ch);
+    const cx3 = cc.getContext('2d');
+    cx3.imageSmoothingQuality = 'high';
+    cx3.drawImage(im, sx, sy, sw, sh, 0, 0, cw, ch);
     return { box: [Math.round(sx), Math.round(sy), Math.round(sw), Math.round(sh)], buf: cc.toBuffer('image/jpeg', 90) };
   });
   const results = [];
@@ -649,6 +655,8 @@ async function segment(img, opts) {
 async function identifyPile(src, opts) {
   const img = await loadImage(src);
   const o = opts || {};
+  // the size of what the client actually sent (ChatGPT may downscale uploads): server log only
+  if (process.env.VERCEL && !o.segmentOnly) { const dm = dimensions(img.buf); console.log(JSON.stringify({ ev: 'pile_photo', mime: img.mime, bytes: img.buf.length, w: dm && dm.w, h: dm && dm.h })); }
   if (o.segmentOnly || o.unevenAt != null) return segment(img, o);
   // On an evenly lit table one pass is enough. On an uneven one the two background models catch
   // different parts (the flat one keeps big dark parts whole, the local one finds parts in the
