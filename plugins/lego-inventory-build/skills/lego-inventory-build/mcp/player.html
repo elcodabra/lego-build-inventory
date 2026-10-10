@@ -33,6 +33,17 @@
   button.act[disabled] { opacity: .55; cursor: default; }
   .busy { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(255,255,255,.8); color: #111; font-weight: 600; }
   .empty { padding: 16px; color: var(--muted); }
+  .ideas { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding: 10px; }
+  .ideas h2 { grid-column: 1 / -1; }
+  .ideas .sub { grid-column: 1 / -1; margin: 0; }
+  .idea { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; }
+  .idea img { width: 100%; aspect-ratio: 1 / 1; display: block; background: #fff; }
+  .idea .tx { padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 4px; flex: 1; }
+  .idea b { font-size: 15px; }
+  .idea .q { font-size: 13px; }
+  .idea.top { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent) inset; }
+  .idea button { margin-top: auto; }
+  .almost { grid-column: 1 / -1; color: var(--muted); font-size: 13px; }
 </style>
 </head>
 <body>
@@ -94,7 +105,43 @@
     return `<div class="stage"><img class="sq" src="${url(d.posterUrl)}" alt="${esc(d.title)}"></div>`;
   }
 
+  function showIdeas(d) {
+    data = d;
+    app.className = 'ideas';
+    const items = d.ideas || [];
+    app.innerHTML = `
+      <h2>${esc(d.title)}</h2>
+      <div class="sub">Картинки собраны из твоих ${num(d.drawableParts)} деталей. Первая идея берёт больше всего деталей.</div>
+      ${items.map((it, i) => `
+        <div class="idea ${i === 0 ? 'top' : ''}">
+          ${url(it.thumbUrl) ? `<img src="${url(it.thumbUrl)}" alt="${esc(it.title)}">` : ''}
+          <div class="tx">
+            <b>${esc(it.title)}</b>
+            <span class="q">${num(it.parts)} деталей · ${num(it.usesPercent)}% кучи</span>
+            <button class="act ${i === 0 ? 'primary' : ''}" data-idea="${esc(it.idea)}">Собрать</button>
+          </div>
+        </div>`).join('')}
+      ${(d.almost || []).map((a) => `<div class="almost">Почти: <b>${esc(a.title)}</b>, не хватает ${(a.missing || []).map((m) => `${esc(m.name)} ${esc(String(m.color || '').toLowerCase())} ×${num(m.qty)}`).join(', ')}</div>`).join('')}`;
+    app.querySelectorAll('button[data-idea]').forEach((b) => { b.onclick = () => buildIdea(b.dataset.idea, b); });
+    sizeChanged();
+  }
+
+  async function buildIdea(idea, btn) {
+    btn.disabled = true;
+    const old = btn.textContent;
+    btn.textContent = 'Собираю…';
+    try {
+      await callTool('idea_build', { idea });
+      const r = await callTool('show_build', { name: idea, mode: 'picture' });
+      const sc = r && (r.structuredContent || (r.result && r.result.structuredContent));
+      if (sc) show(sc); else throw new Error('no result');
+    } catch (e) {
+      btn.disabled = false; btn.textContent = old + ' (ошибка, ещё раз)';
+    }
+  }
+
   function show(d) {
+    if (d && d.kind === 'ideas') return showIdeas(d);
     if (!d || !d.name) return;
     if (!data || data.name !== d.name || data.mode !== d.mode) step = 0;
     data = d;

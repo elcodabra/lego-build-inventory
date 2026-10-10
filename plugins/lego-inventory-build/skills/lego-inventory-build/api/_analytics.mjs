@@ -27,6 +27,10 @@ function resultFacts(tool, payload) {
     if (!r) return {};
     const sc = r.structuredContent;
     if (sc && typeof sc === 'object') {
+      if (sc.kind === 'ideas') {
+        const list = Array.isArray(sc.ideas) ? sc.ideas : [];
+        return { buildable: list.length, almost: Array.isArray(sc.almost) ? sc.almost.length : 0, top_idea: list[0] && list[0].idea, top_uses_percent: list[0] && list[0].usesPercent, drawable_parts: sc.drawableParts, thumbs: list.filter((x) => x.thumbUrl).length };
+      }
       return { model: sc.name, parts: sc.parts, steps: sc.steps, mode: sc.mode, has_video: !!sc.videoUrl };
     }
     const t = r.content && r.content[0] && r.content[0].type === 'text' ? r.content[0].text : '';

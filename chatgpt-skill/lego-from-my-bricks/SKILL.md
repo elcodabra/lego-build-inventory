@@ -24,7 +24,7 @@ Check which tools are available first; prefer A.
    - Photos with one part each → `parts_from_photo` (`add: true`, `qty` = how many of that part the user has).
    - A text list, a set number → `inventory_import` / `inventory_add_set`.
    - Show the recognised parts as a compact table and ask only about lines marked unsure. Fix with `inventory_update`.
-2. **Ideas.** `ideas_suggest`. Offer 2–4 buildable ideas in one short list (name, size, part count), in the order returned: the first one uses the most of the user's parts. Mention at most one "almost" idea with what is missing.
+2. **Ideas.** `ideas_suggest` shows a card with a real picture of every idea, built from the user's own parts, and a «Собрать» button. Answer in one or two sentences (recommend the first idea, it uses the most parts). Never add images from the web or invent ideas that are not in the list. Mention at most one "almost" idea with what is missing.
 3. **Build.** After the user picks: `idea_build` → `show_build` (mode `picture`). The card shows the model and its parts: answer in one sentence, do not retell parts or steps. Never add images from the web or of official sets: only the card, drawn from the user's own parts.
 4. **On request only:** `show_build` mode `steps` (step pictures) or mode `video`. Always use `show_build` for these (it plays the video inside the card); do not use `model_render`/`model_preview`.
 5. **Own design** (the user wants something not in the ideas): read `lego_guide`, design a model JSON from the inventory, `model_check` until ok, `model_save`, `show_build`.

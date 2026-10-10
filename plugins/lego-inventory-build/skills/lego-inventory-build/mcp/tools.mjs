@@ -31,7 +31,8 @@ Photos: pass the uploaded image FILE to the tools, do not describe it yourself a
 parts list by eye (inventory_import is for text lists only). Many parts on one
 photo -> parts_from_pile_photo (the server finds and recognises every part). One part per photo ->
 parts_from_photo. Show the user the resulting list, fix doubts with inventory_update, then
-ideas_suggest -> offer 2-4 ideas -> idea_build -> show_build (picture card in the chat).
+ideas_suggest (a card with real pictures of each idea from the user's parts) -> idea_build -> show_build.
+Never show pictures from the web or of official sets: they do not match what the user can build.
 Be brief: the card shows the model and its parts, never retell steps or parts lists in text.
 Show models ONLY with show_build cards drawn from the user's parts: never add pictures from the web
 or other sets (they would not match what the user can build).
@@ -199,6 +200,19 @@ export function buildServer(opts) {
     return text(`cleared ${n} lines`);
   }));
 
+  // card widget: shared by the ideas list and every visual tool (declared before the tools use it)
+  const PLAYER_URI = 'ui://lego/card-v5.html';
+  const colorInfo = (k) => core.LEGO.COLORS[k] || { hex: '#999', ru: k };
+  // Every tool that produces something visual answers with the same card, so the user sees the
+  // model whichever of them the chat model happens to pick.
+  const cardMeta = {
+    ui: { resourceUri: PLAYER_URI },
+    'openai/outputTemplate': PLAYER_URI,
+    'openai/widgetAccessible': true,
+    'openai/toolInvocation/invoking': 'Рисую…',
+    'openai/toolInvocation/invoked': 'Готово',
+  };
+
   // ---------------------------------------------------------------- photos and ideas
 
   s.registerTool('lego_photo_guide', {
@@ -302,12 +316,38 @@ export function buildServer(opts) {
 
   s.registerTool('ideas_suggest', {
     title: 'What can I build?',
-    description: 'Use this when the user asks what they can build from their parts. Returns ideas that are buildable right now from the inventory (largest size that fits, colours picked from what they have) and ideas that are close, with the exact parts missing.',
+    description: 'Use this when the user asks what they can build from their parts. Shows the ideas as a card with a REAL picture of each model built from the user\'s own parts (and a «Собрать» button), plus ideas that are close with the exact parts missing. ' +
+      'The card is the answer: never add pictures from the web or of official sets, and do not invent ideas that are not in the list.',
     annotations: ro,
+    _meta: cardMeta,
   }, safe(async () => {
-    const s = ideas.suggest(core.loadInventory());
+    const inv = core.loadInventory();
+    const s = ideas.suggest(inv);
     if (!s.drawableParts) return text('Inventory is empty: ask for photos of the parts (parts_from_photo), a parts list (inventory_import) or set numbers (inventory_add_set).');
-    return text({ recommended: s.buildable[0] ? `${s.buildable[0].idea} (${s.buildable[0].parts} parts, ${s.buildable[0].usesPercent}% of the pile)` : undefined, ...s, next: 'Offer the user 2-4 of these, in this order (the first uses the most of their parts), with the part count of each. For the chosen one call idea_build, then show_build (picture card). Do not use model_preview / model_render to show it, and never show pictures from the web instead of the card. You can also design a custom model from the same parts.' });
+    // a thumbnail of every buildable idea, built from these very parts (same generator as idea_build)
+    const nf = require('../lib/nodefilm.cjs');
+    const list = s.buildable.slice(0, 6);
+    const thumbs = await Promise.all(list.map(async (b) => {
+      try {
+        const r = ideas.build(b.idea, inv, b.sizeIndex);
+        const f = path.join(exportsDir(), `idea-${b.idea}-${b.sizeIndex}-thumb.png`);
+        fs.writeFileSync(f, await nf.hero(r.model, { size: 360, trim: true }));
+        return await fileUrl(f);
+      } catch { return null; }
+    }));
+    const data = {
+      kind: 'ideas', name: 'ideas', title: 'Что собрать из твоих деталей', drawableParts: s.drawableParts,
+      ideas: list.map((b, i) => ({ idea: b.idea, title: b.title, about: b.about, parts: b.parts, steps: b.steps, usesPercent: b.usesPercent, thumbUrl: thumbs[i] || null })),
+      almost: s.almost.slice(0, 2).map((a) => ({ idea: a.idea, title: a.title, missing: (a.missing || []).slice(0, 4).map((m) => ({ name: m.name || m.id, color: colorInfo(m.color).ru, qty: m.qty })) })),
+    };
+    return {
+      structuredContent: data,
+      content: [{ type: 'text', text: JSON.stringify({ recommended: s.buildable[0] ? `${s.buildable[0].idea} (${s.buildable[0].parts} parts, ${s.buildable[0].usesPercent}% of the pile)` : undefined, ...s,
+        next: 'The ideas card with real pictures of each model (built from the user\'s parts) is shown to the user. Answer in one or two sentences: recommend the first idea (it uses the most parts) with its part count. ' +
+          'Do NOT show any other pictures (no web images, no official sets) and do not invent other models: if the user wants something else, design it from the inventory (lego_guide, model_check). ' +
+          'When the user picks one (or presses «Собрать»): idea_build, then show_build.' }) },
+        ...(thumbs.some(Boolean) ? [{ type: 'text', text: `Если карточки не видно (агент, чат с навыками), вставь эти картинки как markdown, они нарисованы из деталей пользователя:\n${list.map((b, i) => (thumbs[i] ? `![${b.title}](${thumbs[i]})` : '')).filter(Boolean).join('\n')}` }] : [])],
+    };
   }));
 
   s.registerTool('idea_build', {
@@ -319,6 +359,7 @@ export function buildServer(opts) {
       allowMissing: z.boolean().optional().describe('build even if parts are missing (lists what to add)'),
     },
     annotations: hints(false, false, true, false), // overwrites the saved model of that idea with the same result
+    _meta: { 'openai/widgetAccessible': true }, // the ideas card's «Собрать» button calls it
   }, safe(async ({ idea, size, allowMissing }) => {
     const inv = core.loadInventory();
     const r = ideas.build(idea, inv, size, { shopping: !!allowMissing });
@@ -378,7 +419,6 @@ export function buildServer(opts) {
 
   // ---------------------------------------------------------------- inline player (MCP Apps)
 
-  const PLAYER_URI = 'ui://lego/card-v4.html';
   const mediaOrigin = (opts && opts.mediaOrigin) || null;
   s.registerResource('lego-player', PLAYER_URI, { title: 'LEGO build player', mimeType: 'text/html;profile=mcp-app' }, async () => ({
     contents: [{
@@ -394,16 +434,6 @@ export function buildServer(opts) {
     }],
   }));
 
-  const colorInfo = (k) => core.LEGO.COLORS[k] || { hex: '#999', ru: k };
-  // Every tool that produces something visual answers with the same card, so the user sees the
-  // model whichever of them the chat model happens to pick.
-  const cardMeta = {
-    ui: { resourceUri: PLAYER_URI },
-    'openai/outputTemplate': PLAYER_URI,
-    'openai/widgetAccessible': true,
-    'openai/toolInvocation/invoking': 'Рисую…',
-    'openai/toolInvocation/invoked': 'Готово',
-  };
   async function card(m, md, format, fallbackName) {
     const base = String(m.name || fallbackName || 'model').replace(/[^a-z0-9_-]+/gi, '-') + (format === 'horizontal' ? '-16x9' : '');
     // model-only square pictures: the finished model, and for steps one picture per step with

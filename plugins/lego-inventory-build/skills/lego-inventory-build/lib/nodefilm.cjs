@@ -97,6 +97,31 @@ async function decode(buf) {
 // like in the booklet. The camera frames the whole finished model, so all step pictures line up.
 async function hero(model, opts) {
   const o = opts || {};
+  // trim: render at twice the size, crop to the drawn pixels (scenes spread along a diagonal
+  // leave a lot of empty frame otherwise), square it with a small margin and scale back down
+  if (o.trim) {
+    const S0 = o.size || 900;
+    const { createCanvas, loadImage } = canvasLib();
+    const big = await loadImage(await hero(model, { ...o, trim: false, size: S0 * 2 }));
+    const bc = createCanvas(big.width, big.height);
+    const bx = bc.getContext('2d');
+    bx.drawImage(big, 0, 0);
+    const px = bx.getImageData(0, 0, big.width, big.height).data;
+    let x0 = big.width; let y0 = big.height; let x1 = -1; let y1 = -1;
+    for (let y = 0; y < big.height; y++) for (let x = 0; x < big.width; x++) {
+      const i = 4 * (y * big.width + x);
+      if (px[i] < 245 || px[i + 1] < 245 || px[i + 2] < 245) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    }
+    if (x1 < 0) return hero(model, { ...o, trim: false });
+    const side = Math.round(Math.max(x1 - x0, y1 - y0) * 1.08) + 2;
+    const cx = (x0 + x1) / 2; const cy = (y0 + y1) / 2;
+    const out = createCanvas(S0, S0);
+    const ox = out.getContext('2d');
+    ox.fillStyle = o.background || '#ffffff';
+    ox.fillRect(0, 0, S0, S0);
+    ox.drawImage(big, cx - side / 2, cy - side / 2, side, side, 0, 0, S0, S0);
+    return out.toBuffer('image/png');
+  }
   const S = o.size || 900;
   const { createCanvas } = canvasLib();
   loadBooklet();

@@ -83,8 +83,21 @@ async function exercise(client, label) {
   const sug = J(await call('ideas_suggest'));
   assert.ok(sug.buildable.length >= 3, 'at least 3 ideas: ' + sug.buildable.map((b) => b.idea));
   ok('ideas_suggest: ' + sug.buildable.map((b) => `${b.idea}(${b.parts})`).join(', '));
-  assert.ok(sug.recommended.startsWith(sug.buildable[0].idea) && /show_build/.test(sug.next) && /never show pictures from the web/.test(sug.next));
+  assert.ok(sug.recommended.startsWith(sug.buildable[0].idea) && /show_build/.test(sug.next) && /Do NOT show any other pictures/.test(sug.next));
   ok('ideas_suggest recommends the idea that uses the most parts and points to show_build: ' + sug.recommended);
+  {
+    const raw = await call('ideas_suggest');
+    const sc = raw.structuredContent;
+    assert.equal(sc.kind, 'ideas');
+    assert.deepEqual(sc.ideas.map((x) => x.idea), sug.buildable.slice(0, 6).map((x) => x.idea));
+    assert.ok(sc.ideas.every((x) => x.parts > 0 && x.title));
+    const meta = (await client.listTools()).tools.find((t) => t.name === 'ideas_suggest')._meta;
+    assert.ok(meta['openai/outputTemplate'] && meta['openai/widgetAccessible']);
+    const ib = (await client.listTools()).tools.find((t) => t.name === 'idea_build')._meta;
+    assert.equal(ib['openai/widgetAccessible'], true);
+    assert.match(sug.next, /Do NOT show any other pictures/);
+    ok(`ideas card: ${sc.ideas.length} ideas with their own pictures (${sc.ideas.filter((x) => x.thumbUrl).length} published here), «Собрать» can call idea_build`);
+  }
   const eye = J(await call('inventory_import', { data: 'part,color,qty\n3001,red,1', source: 'Фото IMG_1938, примерный подсчет' }));
   assert.match(eye.warning, /parts_from_pile_photo/);
   const typed = J(await call('inventory_import', { data: 'part,color,qty\n3001,red,1' }));
