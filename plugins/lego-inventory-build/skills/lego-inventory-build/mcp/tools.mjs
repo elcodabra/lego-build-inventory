@@ -441,7 +441,7 @@ export function buildServer(opts) {
   // Same model + same settings = same film: the host can remember the URL (opts.videoCache) and
   // skip the render next time (pressing «Видео» again, or asking for it in a new chat).
   const filmKey = (m, format, q) => require('node:crypto').createHash('sha1')
-    .update(JSON.stringify({ v: 1, title: m.title, theta: m.theta, phi: m.phi, steps: m.steps, format: format || 'vertical', q })).digest('hex');
+    .update(JSON.stringify({ v: 2, title: m.title, theta: m.theta, phi: m.phi, steps: m.steps, format: format || 'vertical', q })).digest('hex');
   async function card(m, md, format, fallbackName, quality) {
     const base = String(m.name || fallbackName || 'model').replace(/[^a-z0-9_-]+/gi, '-') + (format === 'horizontal' ? '-16x9' : '');
     // model-only square pictures: the finished model, and for steps one picture per step with
