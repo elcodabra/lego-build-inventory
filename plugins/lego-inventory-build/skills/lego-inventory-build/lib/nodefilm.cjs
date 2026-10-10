@@ -78,9 +78,12 @@ async function render(model, outFile, opts) {
   let err = '';
   ff.stderr.on('data', (d) => { err += d; });
   const failed = new Promise((_, rej) => ff.on('error', (e) => rej(new Error('ffmpeg not found: ' + e.message))));
+  let drawMs = 0;
   for (let i = 0; i < n; i++) {
     ctx.setTransform(k, 0, 0, k, 0, 0);
+    const td = Date.now();
     film.draw(ctx, i / fps);
+    drawMs += Date.now() - td;
     // canvas.data() is the raw RGBA buffer without the getImageData copy
     const buf = typeof canvas.data === 'function' ? Buffer.from(canvas.data()) : Buffer.from(ctx.getImageData(0, 0, W, H).data.buffer);
     if (!ff.stdin.write(buf)) await Promise.race([new Promise((r) => ff.stdin.once('drain', r)), failed]);
@@ -89,7 +92,7 @@ async function render(model, outFile, opts) {
   ff.stdin.end();
   const code = await Promise.race([new Promise((r) => ff.on('close', r)), failed]);
   if (code !== 0) throw new Error('ffmpeg failed: ' + err.trim());
-  return { file: outFile, frames: n, seconds: film.duration, width: W, height: H };
+  return { file: outFile, frames: n, seconds: film.duration, width: W, height: H, drawMs };
 }
 
 // Decode an image into RGBA pixels (for photo colour estimation).
