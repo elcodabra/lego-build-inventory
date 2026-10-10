@@ -73,6 +73,29 @@ const card = await c.callTool({ name: 'show_build', arguments: { name: idea } })
 const pic = await fetch(card.structuredContent.posterUrl, { method: 'HEAD' });
 ok(`MCP: ${tools.length} tools; new account starts empty (${/empty/i.test(empty)}); built "${idea}", card picture HTTP ${pic.status}`);
 
+// 4b. optional: a real photo of a pile (PILE=/path/to/photo.jpg|heic), the whole user path:
+// photo -> parts -> ideas with wheels/technic parts -> build -> card picture
+if (process.env.PILE) {
+  const fs = await import('node:fs');
+  const b64 = fs.readFileSync(process.env.PILE).toString('base64');
+  const mime = /\.heic$/i.test(process.env.PILE) ? 'image/heic' : 'image/jpeg';
+  const t0 = Date.now();
+  const pr = await c.callTool({ name: 'parts_from_pile_photo', arguments: { images: [`data:${mime};base64,${b64}`], replace: true } });
+  assert.ok(!pr.isError, pr.content[0].text);
+  const pj = JSON.parse(pr.content[0].text);
+  const drawable = pj.parts.filter((p) => p.drawable).reduce((a, p) => a + p.qty, 0);
+  ok(`pile photo: ${pj.totalParts} parts recognised in ${((Date.now() - t0) / 1000).toFixed(0)}s, ${drawable} usable in models`);
+  const ps = JSON.parse((await c.callTool({ name: 'ideas_suggest', arguments: {} })).content[0].text);
+  assert.ok(ps.buildable.length > 0, 'no buildable ideas from the pile');
+  const pidea = ps.buildable[0].idea;
+  await c.callTool({ name: 'idea_build', arguments: { idea: pidea } });
+  const pcard = await c.callTool({ name: 'show_build', arguments: { name: pidea, mode: 'steps' } });
+  assert.ok(!pcard.isError, pcard.content && pcard.content[0].text);
+  const ppic = await fetch(pcard.structuredContent.posterUrl);
+  if (process.env.PILE_OUT) fs.writeFileSync(process.env.PILE_OUT, Buffer.from(await ppic.arrayBuffer()));
+  ok(`pile ideas: ${ps.buildable.map((x) => x.idea).join(', ')}; built "${pidea}" (${pcard.structuredContent.parts} parts, ${pcard.structuredContent.steps} steps), picture HTTP ${ppic.status}`);
+}
+
 // 5. refresh like ChatGPT after an hour
 const rr = await fetch(asm.token_endpoint, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: tok.refresh_token, client_id: CID, resource: prm.resource }) });
 assert.equal(rr.status, 200); ok('refresh with ChatGPT client_id works');
