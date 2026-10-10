@@ -37,5 +37,5 @@ Tokens, codes, refresh tokens, passkeys, keys or secrets, account ids in clear, 
 ## Other house rules
 
 - Never commit secrets. `.chatgpt-connector-url.txt`, `.env*` and test certificates stay out of git.
-- Deploy with `npx vercel@latest deploy --prod --yes --scope angry-team` from the project folder; push to GitHub after tests pass. Pushes do not deploy: Vercel Git builds are turned off for `lego-auth` (the repo root is not a Next app), so a CLI deploy from `auth/` is the only way to ship it.
+- Deploy with `npx vercel@latest deploy --prod --yes --scope angry-team` from the project folder; push to GitHub after tests pass. Pushes do not deploy `lego-auth`: the Vercel project is disconnected from GitHub (the repo root is not a Next app, so git builds always failed). Ship it with a CLI deploy from `auth/`.
 - Storage on Vercel Hobby is metered: prefer Redis (`api/_store.mjs`) over Blob operations, and keep media uploads deduplicated.
