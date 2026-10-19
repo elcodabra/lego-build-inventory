@@ -482,6 +482,19 @@ export function buildServer(opts) {
         console.log(JSON.stringify({ ev: 'video', cached: true }));
         // no file to hash here: the host looks the YouTube copy up by the film key instead
         if (opts && opts.youtubeForFilm) youtubeUrl = await opts.youtubeForFilm(key).catch(() => null);
+        // cached film without a YouTube copy (its upload failed, or it was rendered before uploads
+        // were on): fetch the cached mp4 and hand it to the host again (deduped by sha + daily cap)
+        if (!youtubeUrl && opts && opts.onVideo && /^https?:\/\//.test(cached)) {
+          const tmp = path.join(exportsDir(), base + '-cached-' + key.slice(0, 12) + '.mp4');
+          try {
+            const res = await fetch(cached, { signal: AbortSignal.timeout(20000) });
+            if (res.ok) {
+              fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
+              youtubeUrl = await opts.onVideo(tmp, { key, intro: !!m.intro, title: filmModel.title, parts: m.steps.flat().length, steps: m.steps.length, format: format || 'vertical' }).catch(() => null);
+            }
+          } catch { /* the cached copy is unreachable: the film still plays */ }
+          fs.rmSync(tmp, { force: true });
+        }
       } else {
         // stage timings go to the server log (Vercel), so slow renders can be traced to a stage
         const t0 = Date.now();

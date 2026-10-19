@@ -140,6 +140,54 @@ assert.equal(calls.token, 1); ok('one access-token refresh reused for all upload
   ok('cached film (no re-render): card links to YouTube via the film key');
 }
 
+// 6b. the first upload of a film failed (e.g. a 400 from YouTube) and the film is now served from
+// the cache: the cached mp4 is fetched and offered for upload again (regression, prod 2026-10-19)
+{
+  const http = await import('node:http');
+  const os = await import('node:os'); const fsm = await import('node:fs'); const pth = await import('node:path');
+  const core = (await import('node:module')).createRequire(import.meta.url)('../lib/core.cjs');
+  const dir = fsm.mkdtempSync(pth.join(os.tmpdir(), 'ytr-'));
+  fsm.mkdirSync(pth.join(dir, 'models')); fsm.mkdirSync(pth.join(dir, 'exports'));
+  const media = new Map();
+  const ms = http.createServer((q, s) => { const b = media.get(q.url.slice(1)); if (!b) { s.statusCode = 404; return s.end(); } s.end(b); });
+  await new Promise((r) => ms.listen(0, '127.0.0.1', r));
+  const films = new Map();
+  const offered = [];
+  let linked = null;
+  const { buildServer } = await import(process.cwd() + '/mcp/tools.mjs');
+  await core.ctx.run({ dataDir: dir, safe: true, renderer: 'node' }, async () => {
+    const opts = {
+      publish: async (f) => { media.set(pth.basename(f), fsm.readFileSync(f)); return `http://127.0.0.1:${ms.address().port}/${pth.basename(f)}`; },
+      videoCache: { get: async (k) => films.get(k) || null, set: async (k, u) => { films.set(k, u); } },
+      // first offer: the upload fails (nothing linked); second offer: it succeeds
+      onVideo: async (file, meta) => { offered.push({ bytes: fsm.statSync(file).size, key: meta.key, title: meta.title }); if (offered.length > 1) linked = 'https://youtu.be/vidR'; return null; },
+      youtubeForFilm: async () => linked,
+    };
+    const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js');
+    const srv3 = buildServer(opts);
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    await srv3.connect(st);
+    const c3 = new Client({ name: 'ytr', version: '1' }); await c3.connect(ct);
+    await c3.callTool({ name: 'inventory_import', arguments: { data: 'part,color,qty\n3001,red,10\n3003,white,12\n3039,red,8\n3004,white,10\n3022,white,4', replace: true } });
+    await c3.callTool({ name: 'idea_build', arguments: { idea: a } });
+    await c3.callTool({ name: 'show_build', arguments: { name: a, mode: 'video' } });
+    const r2 = await c3.callTool({ name: 'show_build', arguments: { name: a, mode: 'video' } });
+    assert.equal(films.size, 1, 'second call served from the film cache');
+    assert.equal(offered.length, 2, 'cached film without a YouTube copy is offered again');
+    assert.equal(offered[1].bytes, offered[0].bytes, 'the re-offered file is the cached mp4');
+    assert.equal(offered[1].key, offered[0].key);
+    assert.equal(r2.structuredContent.youtubeUrl, null);
+    const r3 = await c3.callTool({ name: 'show_build', arguments: { name: a, mode: 'video' } });
+    assert.equal(offered.length, 2, 'linked film: not offered a third time');
+    assert.equal(r3.structuredContent.youtubeUrl, 'https://youtu.be/vidR');
+    assert.deepEqual(fsm.readdirSync(pth.join(dir, 'exports')).filter((f) => f.includes('-cached-')), [], 'temp copy removed');
+    await c3.close();
+  });
+  ms.close();
+  fsm.rmSync(dir, { recursive: true, force: true });
+  ok('failed upload: the cached film is re-offered, then linked');
+}
+
 // 7. concurrent renders of one new film: exactly one upload (the claim is atomic)
 if (process.env.KV_REST_API_URL) {
   const store = await import(process.cwd() + '/api/_store.mjs');
