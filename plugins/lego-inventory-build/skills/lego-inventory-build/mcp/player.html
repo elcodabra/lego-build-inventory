@@ -15,6 +15,9 @@
   .stage.h { max-width: 560px; }
   .sq { width: 100%; aspect-ratio: 1 / 1; display: block; background: #fff; }
   .full > img, .full > video { width: 100%; display: block; }
+  /* the film is drawn on white: keep the bars around it white too (fullscreen letterboxes a
+     vertical film with black by default) */
+  .full > video, .full > video:fullscreen, .full > video::backdrop { background: #fff; object-fit: contain; }
   .nav { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; border-top: 1px solid var(--line); background: #fff; color: #1f2328; }
   .nav button { border: 0; background: var(--chip); color: #1f2328; width: 34px; height: 34px; border-radius: 50%; font-size: 18px; cursor: pointer; }
   .nav button[disabled] { opacity: .35; cursor: default; }
