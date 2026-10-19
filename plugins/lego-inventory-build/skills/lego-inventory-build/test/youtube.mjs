@@ -68,7 +68,9 @@ await until(() => calls.put >= 1);
 assert.equal(calls.put, 1);
 const m = uploads[0].meta;
 assert.equal(m.status.privacyStatus, 'unlisted'); assert.equal(m.snippet.categoryId, '26');
-assert.match(m.snippet.title, /сборка LEGO/); assert.match(m.snippet.description, /trademark of the LEGO Group/);
+assert.match(m.snippet.title, /^How to build a LEGO .+ from \d+ bricks/); assert.match(m.snippet.description, /trademark of the LEGO Group/);
+assert.ok(!/[а-яё]/i.test(m.snippet.title + m.snippet.description + m.snippet.tags.join(' ')), 'YouTube metadata is English only: ' + m.snippet.title);
+assert.equal(m.snippet.defaultLanguage, 'en');
 ok(`uploaded after the reply: "${m.snippet.title}", ${uploads[0].size} bytes, unlisted, no subscriber ping`);
 
 // 2. same film again: no second upload, the card now links to YouTube

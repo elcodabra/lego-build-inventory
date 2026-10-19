@@ -450,7 +450,7 @@ export function buildServer(opts) {
   // Same model + same settings = same film: the host can remember the URL (opts.videoCache) and
   // skip the render next time (pressing «Видео» again, or asking for it in a new chat).
   const filmKey = (m, format, q) => require('node:crypto').createHash('sha1')
-    .update(JSON.stringify({ v: 2, title: m.title, theta: m.theta, phi: m.phi, steps: m.steps, format: format || 'vertical', q, ...(m.intro ? { intro: require('node:crypto').createHash('sha1').update(String(m.intro)).digest('hex') } : {}) })).digest('hex');
+    .update(JSON.stringify({ v: 3, lang: m.lang || 'ru', title: m.title, theta: m.theta, phi: m.phi, steps: m.steps, format: format || 'vertical', q, ...(m.intro ? { intro: require('node:crypto').createHash('sha1').update(String(m.intro)).digest('hex') } : {}) })).digest('hex');
   async function card(m, md, format, fallbackName, quality) {
     const base = String(m.name || fallbackName || 'model').replace(/[^a-z0-9_-]+/gi, '-') + (format === 'horizontal' ? '-16x9' : '');
     // model-only square pictures: the finished model, and for steps one picture per step with
@@ -470,8 +470,11 @@ export function buildServer(opts) {
       // the build film opens on the photo of the pile when the model is made from that pile
       const pile = core.loadPile();
       if (pile && core.pileFits(m, pile)) m = { ...m, intro: pile.image };
+      // films are in English (they also go to the English YouTube channel): English title,
+      // English captions; the chat card around them stays in the user's language
+      const filmModel = { ...m, title: require('../lib/ideas.cjs').titleEn(m.title), lang: 'en' };
       const q = quality === 'full' ? FILM_FULL : FILM_CHAT;
-      const key = filmKey(m, format, q);
+      const key = filmKey(filmModel, format, q);
       const cache = opts && opts.videoCache;
       const cached = cache ? await cache.get(key).catch(() => null) : null;
       if (cached) {
@@ -482,14 +485,14 @@ export function buildServer(opts) {
       } else {
         // stage timings go to the server log (Vercel), so slow renders can be traced to a stage
         const t0 = Date.now();
-        const r = await film.render(m, path.join(exportsDir(), base + (q === FILM_FULL ? '' : '-720') + '.mp4'), { format, ...q });
+        const r = await film.render(filmModel, path.join(exportsDir(), base + (q === FILM_FULL ? '' : '-720') + '.mp4'), { format, ...q });
         const t1 = Date.now();
         videoUrl = await fileUrl(r.file);
         console.log(JSON.stringify({ ev: 'video', frames: r.frames, skipped: r.skipped, size: r.width ? `${r.width}x${r.height}` : undefined, render_ms: t1 - t0, draw_ms: r.drawMs, cpus: require('node:os').cpus().length, upload_ms: Date.now() - t1, bytes: fs.statSync(r.file).size }));
         if (cache && videoUrl) await cache.set(key, videoUrl).catch(() => {});
         // the host may copy the film elsewhere (the hosted server: the owner's YouTube channel);
         // it returns a link only when one already exists, the upload itself runs after the reply
-        if (opts && opts.onVideo) youtubeUrl = await opts.onVideo(r.file, { key, intro: !!m.intro, title: m.title, parts: m.steps.flat().length, steps: m.steps.length, format: format || 'vertical' }).catch(() => null);
+        if (opts && opts.onVideo) youtubeUrl = await opts.onVideo(r.file, { key, intro: !!m.intro, title: filmModel.title, parts: m.steps.flat().length, steps: m.steps.length, format: format || 'vertical' }).catch(() => null);
       }
     }
     const bom = core.bom(m).map((b) => ({ id: b.id, name: b.name, color: b.color, colorName: colorInfo(b.color).ru, hex: colorInfo(b.color).hex, qty: b.qty }));

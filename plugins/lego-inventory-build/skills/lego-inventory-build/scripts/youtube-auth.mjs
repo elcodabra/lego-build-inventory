@@ -7,6 +7,8 @@
 //   4. node scripts/youtube-auth.mjs <client_id> <client_secret>
 //      A browser opens, you pick the channel and allow "Manage your YouTube videos" (upload only).
 //   5. The script prints the three values to add to Vercel (it does not store them anywhere):
+//   --manage: ask for the full youtube scope instead (channel branding via the API: banner,
+//      description, keywords, watermark). Use that token only for setup, not on the server.
 //        npx vercel env add YOUTUBE_CLIENT_ID production --sensitive
 //        npx vercel env add YOUTUBE_CLIENT_SECRET production --sensitive
 //        npx vercel env add YOUTUBE_REFRESH_TOKEN production --sensitive
@@ -17,7 +19,9 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import { exec } from 'node:child_process';
 
-const [clientId, clientSecret] = process.argv.slice(2);
+const args = process.argv.slice(2);
+const manage = args.includes('--manage');
+const [clientId, clientSecret] = args.filter((a) => !a.startsWith('--'));
 if (!clientId || !clientSecret) {
   console.error('usage: node scripts/youtube-auth.mjs <client_id> <client_secret>');
   process.exit(2);
@@ -60,7 +64,7 @@ let redirectUri;
 server.listen(0, '127.0.0.1', () => {
   redirectUri = `http://127.0.0.1:${server.address().port}/callback`;
   const auth = new URL('https://accounts.google.com/o/oauth2/v2/auth');
-  for (const [k, v] of Object.entries({ client_id: clientId, redirect_uri: redirectUri, response_type: 'code', scope: 'https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly', access_type: 'offline', prompt: 'consent', state, code_challenge: challenge, code_challenge_method: 'S256' })) auth.searchParams.set(k, v);
+  for (const [k, v] of Object.entries({ client_id: clientId, redirect_uri: redirectUri, response_type: 'code', scope: manage ? 'https://www.googleapis.com/auth/youtube' : 'https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly', access_type: 'offline', prompt: 'consent', state, code_challenge: challenge, code_challenge_method: 'S256' })) auth.searchParams.set(k, v);
   console.log('Opening the browser. If it does not open, visit:\n' + auth);
   exec(`${process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start ""' : 'xdg-open'} "${auth}"`);
 });

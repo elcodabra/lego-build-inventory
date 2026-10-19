@@ -53,7 +53,7 @@ async function page(model, format) {
 }
 
 // Only what the engine needs, so the model survives structured cloning.
-const strip = (m) => JSON.parse(JSON.stringify({ title: m.title, theta: m.theta, phi: m.phi, step: m.step, steps: m.steps }));
+const strip = (m) => JSON.parse(JSON.stringify({ title: m.title, theta: m.theta, phi: m.phi, step: m.step, steps: m.steps, lang: m.lang }));
 
 const frameTime = (model, t) => {
   if (t === 'final' || t == null) return duration(model) - 0.5;

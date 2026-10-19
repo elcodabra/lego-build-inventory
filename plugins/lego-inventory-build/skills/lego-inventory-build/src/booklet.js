@@ -64,7 +64,11 @@
     return forms[2];
   }
 
-  LEGO.booklet = function booklet(model, format) {
+  LEGO.booklet = function booklet(model, format, lang) {
+    const EN = (lang || model.lang) === 'en';
+    const T = EN
+      ? { parts: (n) => n + ' ' + (n === 1 ? 'part' : 'parts'), steps: (n) => n + ' ' + (n === 1 ? 'step' : 'steps'), footer: 'Drawn with code · Canvas 2D' }
+      : { parts: (n) => n + ' ' + plural(n, ['деталь', 'детали', 'деталей']), steps: (n) => n + ' ' + plural(n, ['шаг', 'шага', 'шагов']), footer: 'Нарисовано кодом · Canvas 2D' };
     const L = LAYOUTS[format] || LAYOUTS.vertical;
     const W = L.W;
     const H = L.H;
@@ -349,7 +353,7 @@
         ctx.fillStyle = '#5B6470';
         ctx.font = '40px ' + FONT;
         ctx.fillText(
-          COUNT + ' ' + plural(COUNT, ['деталь', 'детали', 'деталей']) + ' · ' + n + ' ' + plural(n, ['шаг', 'шага', 'шагов']),
+          T.parts(COUNT) + ' · ' + T.steps(n),
           L.title.x + 4,
           L.title.y + 72
         );
@@ -360,7 +364,7 @@
       ctx.font = '26px ' + FONT;
       ctx.textAlign = L.footer.align;
       ctx.textBaseline = 'alphabetic';
-      ctx.fillText('Нарисовано кодом · Canvas 2D', L.footer.x, L.footer.y);
+      ctx.fillText(T.footer, L.footer.x, L.footer.y);
       ctx.restore();
     }
 
@@ -404,9 +408,10 @@
   // have", then the pile fades and the build starts. `image` is a decoded, drawable image (both
   // the browser and @napi-rs/canvas pass one in); the build itself is the plain booklet, shifted.
   const INTRO = 2.6;
-  LEGO.bookletWithPile = function bookletWithPile(model, format, image) {
-    const film = LEGO.booklet(model, format);
+  LEGO.bookletWithPile = function bookletWithPile(model, format, image, lang) {
+    const film = LEGO.booklet(model, format, lang);
     if (!image) return film;
+    const EN = (lang || model.lang) === 'en';
     const L = LAYOUTS[format] || LAYOUTS.vertical;
     const W = film.W;
     const H = film.H;
@@ -432,10 +437,10 @@
       ctx.textAlign = 'left';
       ctx.textBaseline = 'alphabetic';
       ctx.font = 'bold 72px ' + FONT;
-      ctx.fillText('Мои детали', L.callout.x, L.callout.y + 80);
+      ctx.fillText(EN ? 'My bricks' : 'Мои детали', L.callout.x, L.callout.y + 80);
       ctx.fillStyle = '#5B6470';
       ctx.font = '40px ' + FONT;
-      ctx.fillText('Из них: ' + model.title + ' · ' + n + ' ' + plural(n, ['деталь', 'детали', 'деталей']), L.callout.x + 2, L.callout.y + 150);
+      ctx.fillText(EN ? 'Building: ' + model.title + ' · ' + n + ' ' + (n === 1 ? 'part' : 'parts') : 'Из них: ' + model.title + ' · ' + n + ' ' + plural(n, ['деталь', 'детали', 'деталей']), L.callout.x + 2, L.callout.y + 150);
       ctx.restore();
     }
     return {

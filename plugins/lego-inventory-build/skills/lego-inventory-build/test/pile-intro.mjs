@@ -140,5 +140,27 @@ await c.close();
     fs.rmSync(path.join('/tmp/lego/_store', user), { recursive: true, force: true });
   } else console.log('  skip store roundtrip (backend ' + store.backend + ')');
 }
+// 7. films are English: a Russian-titled model gets an English (or transliterated) title, and the
+// booklet's own captions switch with lang
+{
+  const ideas = require('../lib/ideas.cjs');
+  assert.equal(ideas.titleEn('Пожарная машина'), 'Fire truck');
+  assert.equal(ideas.titleEn('Мой замок'), 'Moy zamok');
+  for (const [id, g] of Object.entries(ideas.GENERATORS)) assert.ok(!/[а-яё]/i.test(ideas.titleEn(g.title)), `${id} has an English title`);
+  global.window = global.window || global; require('../src/booklet.js');
+  const texts = [];
+  const { createCanvas } = require('@napi-rs/canvas');
+  const cv = createCanvas(1080, 1920);
+  const ctx = cv.getContext('2d');
+  const realFill = ctx.fillText.bind(ctx);
+  ctx.fillText = (s, ...rest) => { texts.push(String(s)); return realFill(s, ...rest); };
+  const fm = { ...house, title: ideas.titleEn(house.title), lang: 'en' };
+  const f = global.window.LEGO.booklet(fm, 'vertical', 'en');
+  for (const t of [0.2, 1, f.duration - 0.3]) f.draw(ctx, t);
+  const all = texts.join(' | ');
+  assert.ok(!/[а-яё]/i.test(all), 'no Cyrillic in an English film: ' + all.slice(0, 200));
+  assert.match(all, /3 parts · 2 steps/); assert.match(all, /Drawn with code/);
+  ok(`English film: "${[...new Set(texts)].slice(-3).join('" "')}", no Cyrillic; idea titles all English`);
+}
 fs.rmSync(TMP, { recursive: true, force: true });
 console.log('pile intro checks passed');

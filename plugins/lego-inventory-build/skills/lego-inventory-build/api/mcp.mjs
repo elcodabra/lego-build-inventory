@@ -250,9 +250,9 @@ export default async function handler(req, res) {
     const keep = path.join(ROOT_TMP, `yt-${sha}.mp4`);
     fs.copyFileSync(file, keep);
     const job = youtube.upload(keep, {
-      title: `${meta.title} — сборка LEGO из ${meta.parts} деталей`,
-      description: `Пошаговая сборка: ${meta.steps} шагов, ${meta.parts} деталей. Собрано из своих деталей с помощью «LEGO из моих деталей».\nhttps://github.com/elcodabra/lego-build-inventory\n\nLEGO® is a trademark of the LEGO Group, which does not sponsor or endorse this video.`,
-      tags: ['LEGO', 'лего', 'инструкция', 'MOC', meta.title],
+      title: `How to build a LEGO ${meta.title} from ${meta.parts} bricks | step by step`,
+      description: `Step-by-step LEGO build: ${meta.title}, ${meta.parts} bricks, ${meta.steps} steps.${meta.intro ? ' It starts with the real pile of bricks it was built from.' : ''}\n\nMade with Lego from My Data Bricks: snap a photo of your pile, get models you can build right now and instructions like this one. Works in ChatGPT and Claude.\n▶ Connect: https://lego-mcp.vercel.app/mcp\n▶ Code: https://github.com/elcodabra/lego-build-inventory\n\n#LEGO #LEGOinstructions #MOC\n\nLEGO® is a trademark of the LEGO Group, which does not sponsor, authorize or endorse this video.`,
+      tags: ['LEGO', 'LEGO instructions', 'build instructions', 'MOC', 'LEGO ideas', 'step by step', meta.title],
       filmKey: meta.key,
     }).then((v) => {
       if (v) analytics.send([{ user_id: userId, event_type: 'video_published', time: Date.now(), platform: 'mcp', event_properties: { target: 'youtube', format: meta.format, steps: meta.steps, parts: meta.parts, pile_intro: !!meta.intro } }]);

@@ -42,7 +42,7 @@ async function introImage(model) {
 async function view(model, format) {
   const { createCanvas } = canvasLib();
   loadBooklet();
-  const plain = { title: model.title, theta: model.theta, phi: model.phi, step: model.step, steps: model.steps };
+  const plain = { title: model.title, theta: model.theta, phi: model.phi, step: model.step, steps: model.steps, lang: model.lang };
   const img = await introImage(model);
   const film = img ? global.window.LEGO.bookletWithPile(plain, format || 'vertical', img) : booklet(plain, format || 'vertical');
   const canvas = createCanvas(film.W, film.H);

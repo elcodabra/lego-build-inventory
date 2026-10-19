@@ -1167,4 +1167,13 @@ function build(id, inv, size, opts) {
 
 const list = () => Object.entries(GENERATORS).map(([id, g]) => ({ idea: id, title: g.title, about: g.about, sizes: g.sizes.map((s) => s.label) }));
 
-module.exports = { MIRROR_ROT, suggest, build, list, GENERATORS, Stock };
+// English titles of the generated ideas: build videos are in English (the YouTube channel is), the
+// chat keeps the Russian titles. Matched by the Russian title a saved model carries.
+const EN_TITLES = { 'Космодром': 'Spaceport', 'Космический корабль': 'Spaceship', 'Домик': 'House', 'Дерево': 'Tree', 'Грибок': 'Mushroom', 'Ракета': 'Rocket', 'Робот': 'Robot', 'Башня': 'Tower', 'Сердечко': 'Heart', 'Пирамида': 'Pyramid', 'Пожарная машина': 'Fire truck', 'Луноход': 'Moon rover', 'Котик': 'Cat', 'Уточка': 'Duck' };
+// A custom model the agent named in Russian: a known title is translated, anything else is
+// transliterated, so an English video never shows Cyrillic.
+const TR = { а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z', и: 'i', й: 'y', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f', х: 'kh', ц: 'ts', ч: 'ch', ш: 'sh', щ: 'shch', ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya' };
+const translit = (s) => s.replace(/[а-яё]/gi, (ch) => { const t = TR[ch.toLowerCase()]; return ch === ch.toLowerCase() ? t : t.charAt(0).toUpperCase() + t.slice(1); });
+const titleEn = (t) => { const s = String(t || '').trim(); return EN_TITLES[s] || translit(s); };
+
+module.exports = { MIRROR_ROT, suggest, build, list, GENERATORS, Stock, titleEn, EN_TITLES };
