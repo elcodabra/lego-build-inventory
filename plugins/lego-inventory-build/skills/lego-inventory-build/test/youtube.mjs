@@ -99,7 +99,44 @@ assert.equal(ev.length, 2); assert.equal(ev[0].event_properties.target, 'youtube
 assert.ok(!JSON.stringify(amp).includes('vid0') && !JSON.stringify(amp).includes('rt-test')); ok('analytics: video_published x2, no video ids or tokens');
 assert.equal(calls.token, 1); ok('one access-token refresh reused for all uploads');
 
-// 6. concurrent renders of one new film: exactly one upload (the claim is atomic)
+// 6. film served from the render cache (no mp4 to hash): the card still links to YouTube,
+// found by the film key (regression: production renders hit the cache on the second press)
+{
+  const yt = await import(process.cwd() + '/api/_youtube.mjs');
+  const core = (await import('node:module')).createRequire(import.meta.url)('../lib/core.cjs');
+  const os = await import('node:os'); const fsm = await import('node:fs'); const pth = await import('node:path');
+  const dir = fsm.mkdtempSync(pth.join(os.tmpdir(), 'ytc-'));
+  fsm.mkdirSync(pth.join(dir, 'models')); fsm.mkdirSync(pth.join(dir, 'exports'));
+  const films = new Map();
+  let lastKey = null;
+  const { buildServer } = await import(process.cwd() + '/mcp/tools.mjs');
+  await core.ctx.run({ dataDir: dir, safe: true, renderer: 'node' }, async () => {
+    const opts = {
+      publish: async (f) => 'https://media.test/' + pth.basename(f),
+      videoCache: { get: async (k) => films.get(k) || null, set: async (k, u) => { films.set(k, u); } },
+      onVideo: async (file, meta) => { lastKey = meta.key; await yt.linkFilm(meta.key, { id: 'vidC', url: 'https://youtu.be/vidC' }); return null; },
+      youtubeForFilm: async (k) => { const v = await yt.knownFilm(k); return v ? v.url : null; },
+    };
+    const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js');
+    const srv2 = buildServer(opts);
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    await srv2.connect(st);
+    const c2 = new Client({ name: 'ytc', version: '1' }); await c2.connect(ct);
+    await c2.callTool({ name: 'inventory_import', arguments: { data: 'part,color,qty\n3001,red,10\n3003,white,12\n3039,red,8\n3004,white,10\n3022,white,4', replace: true } });
+    await c2.callTool({ name: 'idea_build', arguments: { idea: a } });
+    const r1 = await c2.callTool({ name: 'show_build', arguments: { name: a, mode: 'video' } });
+    assert.ok(lastKey, 'onVideo got the film key');
+    assert.equal(r1.structuredContent.youtubeUrl, null);
+    const r2 = await c2.callTool({ name: 'show_build', arguments: { name: a, mode: 'video' } });
+    assert.equal(films.size, 1, 'second call served from the film cache');
+    assert.equal(r2.structuredContent.youtubeUrl, 'https://youtu.be/vidC');
+    await c2.close();
+  });
+  fsm.rmSync(dir, { recursive: true, force: true });
+  ok('cached film (no re-render): card links to YouTube via the film key');
+}
+
+// 7. concurrent renders of one new film: exactly one upload (the claim is atomic)
 if (process.env.KV_REST_API_URL) {
   const store = await import(process.cwd() + '/api/_store.mjs');
   const r = await Promise.all(Array.from({ length: 8 }, () => store.claimYoutubeSlot('race-sha', 1000)));

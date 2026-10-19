@@ -246,19 +246,21 @@ export default async function handler(req, res) {
   const onVideo = youtube.enabled && (ytUsers.includes('*') || ytUsers.includes(user)) ? async (file, meta) => {
     const sha = youtube.sha1File(file);
     const known = await youtube.knownVideo(sha);
-    if (known) return known.url;
+    if (known) { await youtube.linkFilm(meta.key, known); return known.url; }
     const keep = path.join(ROOT_TMP, `yt-${sha}.mp4`);
     fs.copyFileSync(file, keep);
     const job = youtube.upload(keep, {
       title: `${meta.title} — сборка LEGO из ${meta.parts} деталей`,
       description: `Пошаговая сборка: ${meta.steps} шагов, ${meta.parts} деталей. Собрано из своих деталей с помощью «LEGO из моих деталей».\nhttps://github.com/elcodabra/lego-build-inventory\n\nLEGO® is a trademark of the LEGO Group, which does not sponsor or endorse this video.`,
       tags: ['LEGO', 'лего', 'инструкция', 'MOC', meta.title],
+      filmKey: meta.key,
     }).then((v) => {
       if (v) analytics.send([{ user_id: userId, event_type: 'video_published', time: Date.now(), platform: 'mcp', event_properties: { target: 'youtube', format: meta.format, steps: meta.steps, parts: meta.parts } }]);
     }).finally(() => fs.rmSync(keep, { force: true }));
     try { waitUntil(job); } catch { /* not on Vercel: runs anyway */ }
     return null;
   } : null;
+  const youtubeForFilm = onVideo ? async (key) => { const k = await youtube.knownFilm(key); return k ? k.url : null; } : null;
 
   try {
     // Quota first (atomic, before any work). Then one attempt = load state, run the tool, save with a
@@ -283,7 +285,7 @@ export default async function handler(req, res) {
         else { fs.mkdirSync(path.join(dir, 'models'), { recursive: true }); fs.mkdirSync(path.join(dir, 'exports'), { recursive: true }); }
         return await core.ctx.run({ dataDir: dir, safe: true, renderer: 'node' }, async () => {
           const { buildServer } = await import('../mcp/tools.mjs');
-          srv = buildServer({ publish, mediaOrigin: MEDIA_ORIGIN, onVideo, videoCache: MEDIA ? { get: (k) => store.filmUrlFor(k), set: (k, u) => store.rememberFilm(k, u, MEDIA_DAYS) } : null });
+          srv = buildServer({ publish, mediaOrigin: MEDIA_ORIGIN, onVideo, youtubeForFilm, videoCache: MEDIA ? { get: (k) => store.filmUrlFor(k), set: (k, u) => store.rememberFilm(k, u, MEDIA_DAYS) } : null });
           transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
           await srv.connect(transport);
           const r = await transport.handleRequest(webRequest(req, body), { parsedBody: body });

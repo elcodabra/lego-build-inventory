@@ -465,6 +465,8 @@ export function buildServer(opts) {
       if (cached) {
         videoUrl = cached;
         console.log(JSON.stringify({ ev: 'video', cached: true }));
+        // no file to hash here: the host looks the YouTube copy up by the film key instead
+        if (opts && opts.youtubeForFilm) youtubeUrl = await opts.youtubeForFilm(key).catch(() => null);
       } else {
         // stage timings go to the server log (Vercel), so slow renders can be traced to a stage
         const t0 = Date.now();
@@ -475,7 +477,7 @@ export function buildServer(opts) {
         if (cache && videoUrl) await cache.set(key, videoUrl).catch(() => {});
         // the host may copy the film elsewhere (the hosted server: the owner's YouTube channel);
         // it returns a link only when one already exists, the upload itself runs after the reply
-        if (opts && opts.onVideo) youtubeUrl = await opts.onVideo(r.file, { title: m.title, parts: m.steps.flat().length, steps: m.steps.length, format: format || 'vertical' }).catch(() => null);
+        if (opts && opts.onVideo) youtubeUrl = await opts.onVideo(r.file, { key, title: m.title, parts: m.steps.flat().length, steps: m.steps.length, format: format || 'vertical' }).catch(() => null);
       }
     }
     const bom = core.bom(m).map((b) => ({ id: b.id, name: b.name, color: b.color, colorName: colorInfo(b.color).ru, hex: colorInfo(b.color).hex, qty: b.qty }));

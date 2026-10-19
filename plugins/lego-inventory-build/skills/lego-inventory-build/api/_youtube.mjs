@@ -38,12 +38,17 @@ async function accessToken() {
 
 export const sha1File = (file) => crypto.createHash('sha1').update(fs.readFileSync(file)).digest('hex');
 export const knownVideo = (sha) => (enabled ? store.youtubeFor(sha) : null);
+// The same copy is also remembered under the film key (model + render settings), so a film served
+// from the render cache (no mp4 at hand to hash) still gets its YouTube link.
+export const knownFilm = async (filmKey) => (enabled && filmKey ? store.youtubeFor('film:' + filmKey) : null);
+export const linkFilm = (filmKey, info) => (enabled && filmKey && info ? store.rememberYoutube('film:' + filmKey, info) : null);
 
 // Uploads file; returns { id, url } or null (disabled, already uploaded, over the daily cap).
-export async function upload(file, { title, description, tags = [] } = {}) {
+export async function upload(file, { title, description, tags = [], filmKey } = {}) {
   if (!enabled) return null;
   const sha = sha1File(file);
-  if (await store.youtubeFor(sha)) return null;
+  const done = await store.youtubeFor(sha);
+  if (done) { await linkFilm(filmKey, done); return null; }
   if (!(await store.claimYoutubeSlot(sha, DAILY_MAX))) return null; // someone else is uploading it, or cap reached
   try {
     const token = await accessToken();
@@ -67,6 +72,7 @@ export async function upload(file, { title, description, tags = [] } = {}) {
     if (!put.ok || !v.id) throw new Error('youtube upload: ' + put.status + ' ' + JSON.stringify(v).slice(0, 200));
     const url = `https://youtu.be/${v.id}`;
     await store.rememberYoutube(sha, { id: v.id, url, privacy: v.status && v.status.privacyStatus });
+    await linkFilm(filmKey, { id: v.id, url, privacy: v.status && v.status.privacyStatus });
     console.log(JSON.stringify({ ev: 'youtube_uploaded', id: v.id, privacy: v.status && v.status.privacyStatus, bytes: size }));
     return { id: v.id, url };
   } catch (e) {
