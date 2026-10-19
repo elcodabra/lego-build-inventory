@@ -13,6 +13,9 @@ export default async function handler(req, res) {
   // keep the free Redis database active (archived after 30 idle days)
   const { heartbeat } = await import('./_store.mjs');
   const redisKeys = await heartbeat().catch((e) => { console.log(JSON.stringify({ ev: 'heartbeat_error', err: e.message })); return null; });
+  // the YouTube upload credentials still work (logged so a broken secret shows up in the logs)
+  const yt = await (await import('./_youtube.mjs')).checkToken();
+  console.log(JSON.stringify({ ev: yt.youtube === 'error' ? 'youtube_token_error' : 'youtube_token', ...yt }));
   const token = process.env.MEDIA_BLOB_TOKEN;
   if (!token) return res.status(200).json({ deleted: 0, redisKeys, note: 'no media store' });
   const days = Number(process.env.LEGO_MEDIA_DAYS || 30);

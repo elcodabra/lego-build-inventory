@@ -113,7 +113,9 @@ if (process.env.PILE) {
   ok(`pile ideas: ${ps.buildable.map((x) => x.idea).join(', ')}; built "${pidea}" (${pcard.structuredContent.parts} parts, ${pcard.structuredContent.steps} steps), picture HTTP ${ppic.status}`);
   if (process.env.VIDEO) {
     const tv = Date.now();
-    const vcard = await c.callTool({ name: 'show_build', arguments: { name: pidea, mode: 'video' } }, undefined, { timeout: 300000 });
+    // FORMAT=horizontal renders a film not yet in the cache, so the upload (and the OAuth token) runs for real
+    const fmt = process.env.FORMAT ? { format: process.env.FORMAT } : {};
+    const vcard = await c.callTool({ name: 'show_build', arguments: { name: pidea, mode: 'video', ...fmt } }, undefined, { timeout: 300000 });
     assert.ok(!vcard.isError && vcard.structuredContent.videoUrl, vcard.content && vcard.content[0].text);
     const vh = await fetch(vcard.structuredContent.videoUrl, { method: 'HEAD' });
     ok(`video of "${pidea}" in ${((Date.now() - tv) / 1000).toFixed(1)}s, mp4 HTTP ${vh.status}, ${vh.headers.get('content-length')} bytes`);
@@ -126,7 +128,7 @@ if (process.env.PILE) {
       let yt = null;
       for (let i = 0; i < 12 && !yt; i++) {
         await new Promise((r) => setTimeout(r, 10000));
-        const again = await c.callTool({ name: 'show_build', arguments: { name: pidea, mode: 'video' } }, undefined, { timeout: 300000 });
+        const again = await c.callTool({ name: 'show_build', arguments: { name: pidea, mode: 'video', ...fmt } }, undefined, { timeout: 300000 });
         yt = again.structuredContent && again.structuredContent.youtubeUrl;
       }
       assert.match(String(yt), /^https:\/\/youtu\.be\//, 'a regular user\'s film reached YouTube');

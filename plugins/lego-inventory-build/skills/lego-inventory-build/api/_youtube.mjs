@@ -37,6 +37,14 @@ async function accessToken() {
 }
 
 export const sha1File = (file) => crypto.createHash('sha1').update(fs.readFileSync(file)).digest('hex');
+// Health check for the daily cron: can the OAuth client still mint an access token? Catches a
+// disabled/rotated client secret or a revoked refresh token before users' uploads start failing.
+export async function checkToken() {
+  if (!enabled) return { youtube: 'off' };
+  access = null;
+  try { await accessToken(); return { youtube: 'ok' }; } catch (e) { return { youtube: 'error', err: e.message.slice(0, 120) }; }
+}
+
 export const knownVideo = (sha) => (enabled ? store.youtubeFor(sha) : null);
 // The same copy is also remembered under the film key (model + render settings), so a film served
 // from the render cache (no mp4 at hand to hash) still gets its YouTube link.

@@ -188,6 +188,23 @@ assert.equal(calls.token, 1); ok('one access-token refresh reused for all upload
   ok('failed upload: the cached film is re-offered, then linked');
 }
 
+// 6c. the daily cron checks that the OAuth client still mints tokens (a disabled secret shows up as
+// youtube_token_error in the logs, before users' uploads fail)
+{
+  const yt = await import(process.cwd() + '/api/_youtube.mjs');
+  const before = calls.token;
+  assert.deepEqual(await yt.checkToken(), { youtube: 'ok' });
+  assert.equal(calls.token, before + 1, 'health check refreshes the token for real (no cached token)');
+  process.env.CRON_SECRET = 'cron-test'; delete process.env.MEDIA_BLOB_TOKEN;
+  const logs = []; const log0 = console.log; console.log = (...a) => { logs.push(a.join(' ')); };
+  const res = { code: 0, status(c) { this.code = c; return this; }, json() { return this; }, end() { return this; } };
+  try { await (await import(process.cwd() + '/api/cleanup.mjs')).default({ headers: { authorization: 'Bearer cron-test' } }, res); } finally { console.log = log0; }
+  assert.equal(res.code, 200);
+  assert.ok(logs.some((l) => l.includes('"ev":"youtube_token"') && l.includes('"youtube":"ok"')), 'cron logs the token check');
+  assert.ok(!logs.join('').includes('csecret') && !logs.join('').includes('rt-test') && !logs.join('').includes('at-test'), 'no secrets in logs');
+  ok('cron: OAuth token health check logged, no secrets');
+}
+
 // 7. concurrent renders of one new film: exactly one upload (the claim is atomic)
 if (process.env.KV_REST_API_URL) {
   const store = await import(process.cwd() + '/api/_store.mjs');
