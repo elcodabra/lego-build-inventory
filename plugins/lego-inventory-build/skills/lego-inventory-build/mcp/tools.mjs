@@ -450,7 +450,7 @@ export function buildServer(opts) {
   // Same model + same settings = same film: the host can remember the URL (opts.videoCache) and
   // skip the render next time (pressing «Видео» again, or asking for it in a new chat).
   const filmKey = (m, format, q) => require('node:crypto').createHash('sha1')
-    .update(JSON.stringify({ v: 4, sound: require('../lib/sound.cjs').enabled(), lang: m.lang || 'ru', title: m.title, theta: m.theta, phi: m.phi, steps: m.steps, format: format || 'vertical', q, ...(m.intro ? { intro: require('node:crypto').createHash('sha1').update(String(m.intro)).digest('hex') } : {}) })).digest('hex');
+    .update(JSON.stringify({ v: 5, sound: require('../lib/sound.cjs').enabled(), lang: m.lang || 'ru', title: m.title, theta: m.theta, phi: m.phi, steps: m.steps, format: format || 'vertical', q, ...(m.intro ? { intro: require('node:crypto').createHash('sha1').update(String(m.intro)).digest('hex') } : {}) })).digest('hex');
   async function card(m, md, format, fallbackName, quality) {
     const base = String(m.name || fallbackName || 'model').replace(/[^a-z0-9_-]+/gi, '-') + (format === 'horizontal' ? '-16x9' : '');
     // model-only square pictures: the finished model, and for steps one picture per step with
@@ -466,6 +466,7 @@ export function buildServer(opts) {
     }));
     let videoUrl = null;
     let youtubeUrl = null;
+    let pageBg = null;
     if (md === 'video') {
       // the build film opens on the photo of the pile when the model is made from that pile
       const pile = core.loadPile();
@@ -473,6 +474,9 @@ export function buildServer(opts) {
       // films are in English (they also go to the English YouTube channel): English title,
       // English captions; the chat card around them stays in the user's language
       const filmModel = { ...m, title: require('../lib/ideas.cjs').titleEn(m.title), lang: 'en' };
+      // the film's page colour (booklet.js picks it by title), so the card around the video matches
+      if (!global.window.LEGO.pageColor) require('../src/booklet.js');
+      pageBg = global.window.LEGO.pageColor(filmModel.title);
       const q = quality === 'full' ? FILM_FULL : FILM_CHAT;
       const key = filmKey(filmModel, format, q);
       const cache = opts && opts.videoCache;
@@ -511,7 +515,7 @@ export function buildServer(opts) {
     const bom = core.bom(m).map((b) => ({ id: b.id, name: b.name, color: b.color, colorName: colorInfo(b.color).ru, hex: colorInfo(b.color).hex, qty: b.qty }));
     const data = {
       name: m.name || fallbackName || '', title: m.title, parts: m.steps.flat().length, steps: m.steps.length, format: format || 'vertical', mode: md,
-      posterUrl: urls[0], stepUrls: urls.slice(1), videoUrl, youtubeUrl, bom, ...(m.intro ? { pileIntro: true } : {}),
+      posterUrl: urls[0], stepUrls: urls.slice(1), videoUrl, youtubeUrl, ...(pageBg ? { bg: pageBg } : {}), bom, ...(m.intro ? { pileIntro: true } : {}),
     };
     const next = md === 'picture' ? '«шаги картинками» или «видео»' : md === 'steps' ? '«видео»' : 'собрать что-то ещё';
     // Markdown fallback for hosts that do not render the card: images inline, video as a link.

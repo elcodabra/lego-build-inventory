@@ -63,7 +63,7 @@ export async function upload(file, { title, description, tags = [], filmKey } = 
     const size = fs.statSync(file).size;
     const meta = {
       snippet: { title: String(title || 'LEGO build').slice(0, 100), description: String(description || '').slice(0, 4900), tags: tags.slice(0, 15), categoryId: '26', defaultLanguage: 'en' }, // 26 = Howto & Style. (defaultAudioLanguage 'zxx' is rejected with 400 INVALID by videos.insert)
-      status: { privacyStatus: PRIVACY, selfDeclaredMadeForKids: false, embeddable: true },
+      status: { privacyStatus: PRIVACY, selfDeclaredMadeForKids: true, embeddable: true }, // the films are made mainly for children (COPPA: no personalised ads, comments off)
     };
     // 1. start a resumable session
     const init = await fetch(`${UPLOAD_URL}?uploadType=resumable&part=snippet,status&notifySubscribers=false`, {

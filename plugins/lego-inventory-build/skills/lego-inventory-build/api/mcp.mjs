@@ -251,7 +251,7 @@ export default async function handler(req, res) {
     fs.copyFileSync(file, keep);
     const job = youtube.upload(keep, {
       title: `How to build a LEGO ${meta.title} from ${meta.parts} bricks | step by step`,
-      description: `Step-by-step LEGO build: ${meta.title}, ${meta.parts} bricks, ${meta.steps} steps.${meta.intro ? ' It starts with the real pile of bricks it was built from.' : ''}\n\nMade with Lego from My Data Bricks: snap a photo of your pile, get models you can build right now and instructions like this one. Works in ChatGPT and Claude.\n▶ Connect: https://lego-mcp.vercel.app/mcp\n▶ Code: https://github.com/elcodabra/lego-build-inventory\n\n#LEGO #LEGOinstructions #MOC\n\nLEGO® is a trademark of the LEGO Group, which does not sponsor, authorize or endorse this video.`,
+      description: `Step-by-step LEGO build: ${meta.title}, ${meta.parts} bricks, ${meta.steps} steps.${meta.intro ? ' It starts with the real pile of bricks it was built from.' : ''}\n\nA build-along for kids: watch each step, find the same bricks in your own pile and build it together.\n\nMade with Lego from My Bricks: snap a photo of your pile, get models you can build right now and instructions like this one. Works in ChatGPT and Claude.\n▶ Connect: https://lego-mcp.vercel.app/mcp\n▶ Code: https://github.com/elcodabra/lego-build-inventory\n\n#LEGO #LEGOinstructions #MOC\n\nLEGO® is a trademark of the LEGO Group, which does not sponsor, authorize or endorse this video.`,
       tags: ['LEGO', 'LEGO instructions', 'build instructions', 'MOC', 'LEGO ideas', 'step by step', meta.title],
       filmKey: meta.key,
     }).then((v) => {

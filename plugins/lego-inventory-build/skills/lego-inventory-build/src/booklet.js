@@ -18,6 +18,16 @@
   const FONT = 'Inter, "Helvetica Neue", Helvetica, Arial, sans-serif';
   const INK = '#1F2328';
   const PALE = 0.45;
+  // Page colour: light neutral tones that change from film to film (picked by the model title,
+  // so one model always gets the same page). Light enough for the dark text and the pale parts.
+  const BACKGROUNDS = ['#FFFFFF', '#F7F3EC', '#EEF3F7', '#F1F5EE', '#F5F1F4', '#F3F3F1'];
+  function pageColor(title) {
+    let h = 2166136261;
+    for (const c of String(title || '')) h = Math.imul(h ^ c.codePointAt(0), 16777619);
+    return BACKGROUNDS[(h >>> 0) % BACKGROUNDS.length];
+  }
+  LEGO.BACKGROUNDS = BACKGROUNDS;
+  LEGO.pageColor = pageColor;
 
   const LAYOUTS = {
     vertical: {
@@ -72,6 +82,7 @@
     const L = LAYOUTS[format] || LAYOUTS.vertical;
     const W = L.W;
     const H = L.H;
+    const BG = model.bg || pageColor(model.title);
     const THETA = model.theta == null ? 45 : model.theta;
     const PHI = model.phi == null ? 30 : model.phi;
     const STEPS = model.steps;
@@ -370,7 +381,7 @@
 
     function draw(ctx, t) {
       ctx.save();
-      ctx.fillStyle = '#FFFFFF';
+      ctx.fillStyle = BG;
       ctx.fillRect(0, 0, W, H);
       const cam = camAt(t);
       LEGO.draw(ctx, itemsAt(t), cam);
@@ -411,7 +422,7 @@
       out.push({ t: T_BUILD + 0.1, kind: 'done' });
       return out;
     }
-    return { W, H, duration: DURATION, draw, signature, cues, parts: COUNT, steps: STEPS.length, title: model.title };
+    return { W, H, bg: BG, duration: DURATION, draw, signature, cues, parts: COUNT, steps: STEPS.length, title: model.title };
   };
 
   // A film that opens on the photo of the user's pile (table removed): ~2 s of "here is what you
@@ -428,8 +439,10 @@
     const n = film.parts;
     function pile(ctx, t) {
       ctx.save();
-      ctx.fillStyle = '#FFFFFF';
+      ctx.fillStyle = film.bg;
       ctx.fillRect(0, 0, W, H);
+      // the cut-out sits on white: multiply makes that white take the page colour
+      ctx.globalCompositeOperation = 'multiply';
       // the photo, fitted into the model area, easing in slightly; fades out in the last 0.5 s
       const A = L.area;
       const aw = A.x1 - A.x0;
@@ -441,6 +454,7 @@
       const h = image.height * k * zoom;
       ctx.globalAlpha = clamp(t / 0.35) * (1 - out);
       ctx.drawImage(image, A.x0 + (aw - w) / 2, A.y0 + (ah - h) / 2, w, h);
+      ctx.globalCompositeOperation = 'source-over';
       // caption where the parts list sits during the build
       ctx.globalAlpha = clamp((t - 0.2) / 0.35) * (1 - out);
       ctx.fillStyle = INK;
@@ -454,7 +468,7 @@
       ctx.restore();
     }
     return {
-      W, H, parts: film.parts, steps: film.steps, title: film.title,
+      W, H, bg: film.bg, parts: film.parts, steps: film.steps, title: film.title,
       duration: film.duration + INTRO,
       draw(ctx, t) {
         if (t < INTRO) pile(ctx, t);

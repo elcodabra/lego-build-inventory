@@ -73,6 +73,8 @@ assert.equal(m.status.privacyStatus, 'unlisted'); assert.equal(m.snippet.categor
 assert.match(m.snippet.title, /^How to build a LEGO .+ from \d+ bricks/); assert.match(m.snippet.description, /trademark of the LEGO Group/);
 assert.ok(!/[а-яё]/i.test(m.snippet.title + m.snippet.description + m.snippet.tags.join(' ')), 'YouTube metadata is English only: ' + m.snippet.title);
 assert.equal(m.snippet.defaultLanguage, 'en');
+assert.equal(m.status.selfDeclaredMadeForKids, true, 'films are declared made for kids');
+assert.match(m.snippet.description, /for kids/); assert.match(m.snippet.description, /Lego from My Bricks/); assert.doesNotMatch(m.snippet.description, /Data Bricks/);
 ok(`uploaded after the reply: "${m.snippet.title}", ${uploads[0].size} bytes, unlisted, no subscriber ping`);
 
 // 2. same film again: no second upload, the card now links to YouTube
