@@ -83,8 +83,11 @@ async function render(model, outFile, opts) {
   const ctx = canvas.getContext('2d');
   fs.mkdirSync(path.dirname(outFile), { recursive: true });
   const n = Math.round(film.duration * fps);
+  // soundtrack synthesized from the film's cues (lib/sound.cjs), muxed as AAC
+  const track = o.sound === false ? null : require('./sound.cjs').writeTrack(outFile + '.wav', film.duration, film.cues ? film.cues() : [], { title: model.title, step: model.step });
   const ff = spawn(ffmpegPath(), [
     '-y', '-loglevel', 'error', '-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${W}x${H}`, '-framerate', String(fps), '-i', '-',
+    ...(track ? ['-i', track, '-c:a', 'aac', '-b:a', '128k', '-shortest'] : []),
     '-c:v', 'libx264', '-preset', o.preset || 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', outFile,
   ], { stdio: ['pipe', 'ignore', 'pipe'] });
   let err = '';
@@ -114,8 +117,9 @@ async function render(model, outFile, opts) {
   }
   ff.stdin.end();
   const code = await Promise.race([new Promise((r) => ff.on('close', r)), failed]);
+  if (track) fs.rmSync(track, { force: true });
   if (code !== 0) throw new Error('ffmpeg failed: ' + err.trim());
-  return { file: outFile, frames: n, seconds: film.duration, width: W, height: H, drawMs, skipped };
+  return { file: outFile, frames: n, seconds: film.duration, width: W, height: H, drawMs, skipped, audio: !!track };
 }
 
 // Decode an image into RGBA pixels (for photo colour estimation).

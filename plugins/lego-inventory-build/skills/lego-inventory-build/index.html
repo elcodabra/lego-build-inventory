@@ -31,7 +31,7 @@
     cv.width = view.W;
     cv.height = view.H;
     window.VIEW = view;
-    return { W: view.W, H: view.H, duration: view.duration || 0 };
+    return { W: view.W, H: view.H, duration: view.duration || 0, cues: view.cues ? view.cues() : [] };
   };
   window.CANVAS = cv;
   window.drawAt = (t) => view.draw(ctx, t);

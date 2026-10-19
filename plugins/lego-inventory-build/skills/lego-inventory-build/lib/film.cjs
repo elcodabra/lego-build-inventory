@@ -83,8 +83,10 @@ async function renderChromium(model, outFile, opts) {
   const { p, info } = await page(model, o.format);
   fs.mkdirSync(path.dirname(outFile), { recursive: true });
   const n = Math.round(info.duration * fps);
+  const track = o.sound === false || model === 'parts' ? null : require('./sound.cjs').writeTrack(outFile + '.wav', info.duration, info.cues || [], { title: model.title, step: model.step });
   const ff = spawn(process.env.FFMPEG || 'ffmpeg', [
     '-y', '-loglevel', 'error', '-f', 'image2pipe', '-framerate', String(fps), '-i', '-',
+    ...(track ? ['-i', track, '-c:a', 'aac', '-b:a', '128k', '-shortest'] : []),
     '-c:v', 'libx264', '-preset', 'medium', '-crf', '17', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', outFile,
   ], { stdio: ['pipe', 'ignore', 'pipe'] });
   let ffErr = '';
@@ -101,8 +103,9 @@ async function renderChromium(model, outFile, opts) {
     if (code !== 0) throw new Error('ffmpeg failed: ' + ffErr.trim());
   } finally {
     await p.close();
+    if (track) fs.rmSync(track, { force: true });
   }
-  return { file: outFile, frames: n, seconds: info.duration };
+  return { file: outFile, frames: n, seconds: info.duration, audio: !!track };
 }
 
 // Backend: Chromium (Playwright) when it is there, else Skia (@napi-rs/canvas, no browser, works on

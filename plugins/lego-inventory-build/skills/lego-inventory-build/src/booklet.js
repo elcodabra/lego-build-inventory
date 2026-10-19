@@ -401,7 +401,17 @@
       return [r3(cam.scale), cam.target.map(r3).join(','), spin, busy ? 't' + r3(t) : '', callout, end, parts.join(';')].join('|');
     }
 
-    return { W, H, duration: DURATION, draw, signature, parts: COUNT, steps: STEPS.length, title: model.title };
+    // sound cues for the soundtrack (lib/sound.cjs): a step begins, a part lands, the model is done
+    function cues() {
+      const out = [];
+      STEPS.forEach((st, k) => {
+        out.push({ t: stepStart(k), kind: 'step', k });
+        st.forEach((spec, i) => out.push({ t: partStart(k, i) + (spec.from ? FALL * 1.1 : FALL), kind: 'land', k, i }));
+      });
+      out.push({ t: T_BUILD + 0.1, kind: 'done' });
+      return out;
+    }
+    return { W, H, duration: DURATION, draw, signature, cues, parts: COUNT, steps: STEPS.length, title: model.title };
   };
 
   // A film that opens on the photo of the user's pile (table removed): ~2 s of "here is what you
@@ -449,6 +459,9 @@
       draw(ctx, t) {
         if (t < INTRO) pile(ctx, t);
         else film.draw(ctx, t - INTRO);
+      },
+      cues() {
+        return [{ t: 0.15, kind: 'intro' }].concat((film.cues ? film.cues() : []).map((c) => ({ ...c, t: c.t + INTRO })));
       },
       signature(t) {
         // the intro moves all the time except for a short hold: always draw it
