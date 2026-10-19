@@ -197,6 +197,7 @@ export function buildServer(opts) {
     inv.items = [];
     inv.sources = [];
     core.saveInventory(inv);
+    core.savePile(null);
     return text(`cleared ${n} lines`);
   }));
 
@@ -271,6 +272,7 @@ export function buildServer(opts) {
     const md = mode || (add === false ? 'none' : replace === false ? 'add' : 'replace');
     const inv = core.loadInventory();
     const photos = [];
+    const pileShots = [];
     const all = new Map();
     for (const src of srcs.slice(0, 6)) {
       let r;
@@ -280,6 +282,7 @@ export function buildServer(opts) {
         photos.push({ error: e.message });
         continue;
       }
+      pileShots.push(r.clean || null);
       photos.push({ found: r.found, recognised: r.recognised, failed: r.parts.filter((p) => p.error).length });
       for (const it of r.items) {
         const k = it.id + '|' + it.color;
@@ -290,6 +293,8 @@ export function buildServer(opts) {
       }
     }
     const items = [...all.values()];
+    // the cleaned picture of the (first) photo: the opening shot of build films from this pile
+    const cleanShot = pileShots.find(Boolean) || null;
     let previous;
     if (md !== 'none' && items.length) {
       if (md === 'replace' && inv.items.length) {
@@ -300,6 +305,10 @@ export function buildServer(opts) {
       inv.items.push(...items.map((it) => ({ id: it.id, color: it.color, qty: it.qty })));
       inv.sources.push(`pile photo ×${srcs.length}`);
       core.saveInventory(inv);
+      // one picture for the pile the list is now made of; "add" keeps an older shot only if this
+      // photo produced none (a mixed list is no longer "this one pile", so the shot is dropped)
+      if (md === 'replace') core.savePile(cleanShot, items);
+      else core.savePile(null);
     }
     const total = items.reduce((a, x) => a + x.qty, 0);
     return text({
@@ -441,7 +450,7 @@ export function buildServer(opts) {
   // Same model + same settings = same film: the host can remember the URL (opts.videoCache) and
   // skip the render next time (pressing «Видео» again, or asking for it in a new chat).
   const filmKey = (m, format, q) => require('node:crypto').createHash('sha1')
-    .update(JSON.stringify({ v: 2, title: m.title, theta: m.theta, phi: m.phi, steps: m.steps, format: format || 'vertical', q })).digest('hex');
+    .update(JSON.stringify({ v: 2, title: m.title, theta: m.theta, phi: m.phi, steps: m.steps, format: format || 'vertical', q, ...(m.intro ? { intro: require('node:crypto').createHash('sha1').update(String(m.intro)).digest('hex') } : {}) })).digest('hex');
   async function card(m, md, format, fallbackName, quality) {
     const base = String(m.name || fallbackName || 'model').replace(/[^a-z0-9_-]+/gi, '-') + (format === 'horizontal' ? '-16x9' : '');
     // model-only square pictures: the finished model, and for steps one picture per step with
@@ -458,6 +467,9 @@ export function buildServer(opts) {
     let videoUrl = null;
     let youtubeUrl = null;
     if (md === 'video') {
+      // the build film opens on the photo of the pile when the model is made from that pile
+      const pile = core.loadPile();
+      if (pile && core.pileFits(m, pile)) m = { ...m, intro: pile.image };
       const q = quality === 'full' ? FILM_FULL : FILM_CHAT;
       const key = filmKey(m, format, q);
       const cache = opts && opts.videoCache;
@@ -477,13 +489,13 @@ export function buildServer(opts) {
         if (cache && videoUrl) await cache.set(key, videoUrl).catch(() => {});
         // the host may copy the film elsewhere (the hosted server: the owner's YouTube channel);
         // it returns a link only when one already exists, the upload itself runs after the reply
-        if (opts && opts.onVideo) youtubeUrl = await opts.onVideo(r.file, { key, title: m.title, parts: m.steps.flat().length, steps: m.steps.length, format: format || 'vertical' }).catch(() => null);
+        if (opts && opts.onVideo) youtubeUrl = await opts.onVideo(r.file, { key, intro: !!m.intro, title: m.title, parts: m.steps.flat().length, steps: m.steps.length, format: format || 'vertical' }).catch(() => null);
       }
     }
     const bom = core.bom(m).map((b) => ({ id: b.id, name: b.name, color: b.color, colorName: colorInfo(b.color).ru, hex: colorInfo(b.color).hex, qty: b.qty }));
     const data = {
       name: m.name || fallbackName || '', title: m.title, parts: m.steps.flat().length, steps: m.steps.length, format: format || 'vertical', mode: md,
-      posterUrl: urls[0], stepUrls: urls.slice(1), videoUrl, youtubeUrl, bom,
+      posterUrl: urls[0], stepUrls: urls.slice(1), videoUrl, youtubeUrl, bom, ...(m.intro ? { pileIntro: true } : {}),
     };
     const next = md === 'picture' ? '«шаги картинками» или «видео»' : md === 'steps' ? '«видео»' : 'собрать что-то ещё';
     // Markdown fallback for hosts that do not render the card: images inline, video as a link.

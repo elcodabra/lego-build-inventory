@@ -30,9 +30,21 @@ function loadBooklet() {
   return booklet;
 }
 
-function view(model, format) {
+// model.intro: a data: URL of the cleaned pile photo -> decoded once for the whole film
+async function introImage(model) {
+  if (!model.intro) return null;
+  const { loadImage } = canvasLib();
+  const m = String(model.intro).match(/^data:image\/[a-z+]+;base64,(.+)$/);
+  if (!m) return null;
+  try { return await loadImage(Buffer.from(m[1], 'base64')); } catch { return null; }
+}
+
+async function view(model, format) {
   const { createCanvas } = canvasLib();
-  const film = loadBooklet()({ title: model.title, theta: model.theta, phi: model.phi, step: model.step, steps: model.steps }, format || 'vertical');
+  loadBooklet();
+  const plain = { title: model.title, theta: model.theta, phi: model.phi, step: model.step, steps: model.steps };
+  const img = await introImage(model);
+  const film = img ? global.window.LEGO.bookletWithPile(plain, format || 'vertical', img) : booklet(plain, format || 'vertical');
   const canvas = createCanvas(film.W, film.H);
   return { film, canvas, ctx: canvas.getContext('2d') };
 }
@@ -44,7 +56,7 @@ const frameTime = (model, t) => {
 };
 
 async function snap(model, times, format) {
-  const { film, canvas, ctx } = view(model, format);
+  const { film, canvas, ctx } = await view(model, format);
   return times.map((t) => {
     const tt = frameTime(model, t);
     film.draw(ctx, tt);
@@ -60,7 +72,7 @@ function ffmpegPath() {
 async function render(model, outFile, opts) {
   const o = opts || {};
   const fps = o.fps || 30;
-  const { film } = view(model, o.format);
+  const { film } = await view(model, o.format);
   // scale < 1: the same layout drawn smaller (a chat card shows the film at ~400 px wide, so
   // 720p looks the same there and costs about half the CPU of 1080p)
   const k = o.scale && o.scale > 0 && o.scale < 1 ? o.scale : 1;

@@ -39,7 +39,15 @@ async function page(model, format) {
   p.on('pageerror', (e) => errors.push(e.message));
   await p.goto(pathToFileURL(path.join(ROOT, 'index.html')).href + '?render=1');
   await p.waitForFunction(() => window.READY === true);
-  const info = await p.evaluate(([m, f]) => window.show(m, f), [model === 'parts' ? 'parts' : strip(model), format || 'vertical']);
+  const info = await p.evaluate(async ([m, f, intro]) => {
+    if (intro) {
+      const img = new Image();
+      img.src = intro;
+      await img.decode().catch(() => {});
+      window.INTRO_IMAGE = img.naturalWidth ? img : null;
+    }
+    return window.show(m, f);
+  }, [model === 'parts' ? 'parts' : strip(model), format || 'vertical', model !== 'parts' && model.intro ? String(model.intro) : null]);
   if (errors.length) throw new Error('page error: ' + errors.join('; '));
   return { p, info };
 }

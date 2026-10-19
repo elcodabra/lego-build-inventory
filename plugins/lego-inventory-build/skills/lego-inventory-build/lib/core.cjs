@@ -346,14 +346,17 @@ function previousInventoryPath(inv) { return path.join(path.dirname(inv.file || 
 function backupInventory(inv) {
   const p = previousInventoryPath(inv);
   fs.mkdirSync(path.dirname(p), { recursive: true });
-  fs.writeFileSync(p, JSON.stringify({ updated: new Date().toISOString(), sources: inv.sources || [], items: mergeItems(inv.items) }, null, 2) + '\n');
+  const pile = loadPile();
+  fs.writeFileSync(p, JSON.stringify({ updated: new Date().toISOString(), sources: inv.sources || [], items: mergeItems(inv.items), ...(pile ? { pile } : {}) }, null, 2) + '\n');
 }
 function undoInventory(file) {
   const cur = loadInventory(file);
   const p = previousInventoryPath(cur);
   if (!fs.existsSync(p)) return null;
   const prev = JSON.parse(fs.readFileSync(p, 'utf8'));
-  backupInventory(cur);
+  backupInventory(cur); // keeps the current pile picture with the current list
+  // the pile picture travels with its list
+  savePile(prev.pile ? prev.pile.image : null, prev.pile ? prev.pile.items : null);
   return saveInventory({ file: cur.file, sources: prev.sources || [], items: prev.items || [] });
 }
 
@@ -543,12 +546,33 @@ function saveModel(model, dir) {
   return { name, file };
 }
 
-// Film length, same formula as booklet.js.
-const duration = (model) => 0.55 + (model.step || 0.85) * model.steps.length + 0.45 + 3.6 + 1.5;
+// Film length, same formula as booklet.js (plus the opening pile shot when the film has one).
+const INTRO = 2.6;
+const duration = (model) => (model.intro ? INTRO : 0) + 0.55 + (model.step || 0.85) * model.steps.length + 0.45 + 3.6 + 1.5;
+
+// The cleaned photo of the pile the parts list came from (the opening shot of build films).
+// Kept next to inventory.json, so the hosted store keeps it with the user's state; it follows the
+// inventory: replaced by a new pile photo, swapped by undo, dropped by clear.
+function pilePath(inv) { return path.join(path.dirname((inv && inv.file) || defaultInventoryPath()), 'pile.json'); }
+function savePile(image, items) {
+  const p = pilePath();
+  if (!image) { fs.rmSync(p, { force: true }); return; }
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, JSON.stringify({ updated: new Date().toISOString(), image, items: mergeItems(items || []) }));
+}
+function loadPile() {
+  try { return JSON.parse(fs.readFileSync(pilePath(), 'utf8')); } catch { return null; }
+}
+// The pile shot fits a model when every part the model uses was on that photo (same part and
+// colour, enough of them): only then is "from this pile" true.
+function pileFits(model, pile) {
+  if (!pile || !pile.image || !pile.items) return false;
+  return fitInventory(model, { items: pile.items }).ok;
+}
 
 module.exports = {
   ROOT, ctx, safeMode, dataDir, get DATA_DIR() { return dataDir(); }, LEGO, colorKey, partId, drawable, catalog,
   loadModel, listModels, validateModel, saveModel, bom, checkGeometry, duration,
   defaultInventoryPath, loadInventory, saveInventory, backupInventory, undoInventory, parseInventory, fetchSet, mergeItems,
-  summarizeInventory, fitInventory, fullCheck, formatCheck,
+  summarizeInventory, fitInventory, fullCheck, formatCheck, INTRO, savePile, loadPile, pileFits,
 };

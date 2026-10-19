@@ -433,6 +433,59 @@ function splitBlobs(edge, lab, boxes, W, H, minArea) {
   boxes.push(...out);
 }
 
+// The pile on a clean white page: every part kept in its place and colours, the table, shadows
+// and specks removed. Mask = foreground components big enough to be a part (from the 480 px
+// working mask), lightly grown and feathered, applied to the photo at up to 960 px; cropped to
+// the parts with a margin. Returns a JPEG data URL (small enough to keep with the user's state).
+function cleanPile(im, lab, comps, minArea, W, H, createCanvas) {
+  // a region touching the frame is the floor, the table edge or a hand, not a part laid out
+  const ok = comps.map((c) => c.area >= minArea && c.area < W * H * 0.5 && c.x0 > 0 && c.y0 > 0 && c.x1 < W - 1 && c.y1 < H - 1);
+  const keep = new Uint8Array(W * H);
+  let x0 = W; let y0 = H; let x1 = -1; let y1 = -1;
+  for (let i = 0; i < W * H; i++) {
+    const id = lab[i];
+    if (!id || !ok[id - 1]) continue;
+    keep[i] = 1;
+    const x = i % W; const y = (i / W) | 0;
+    if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+  }
+  if (x1 < 0) return null;
+  // grow by 1 px so dark outlines of parts are not cut off
+  const grown = new Uint8Array(W * H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    if (!keep[y * W + x]) continue;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const nx = x + dx; const ny = y + dy;
+      if (nx >= 0 && ny >= 0 && nx < W && ny < H) grown[ny * W + nx] = 1;
+    }
+  }
+  const mask = createCanvas(W, H);
+  const mx = mask.getContext('2d');
+  const md = mx.createImageData(W, H);
+  for (let i = 0; i < W * H; i++) { md.data[4 * i + 3] = grown[i] ? 255 : 0; }
+  mx.putImageData(md, 0, 0);
+  // crop box in mask pixels with a margin, then the photo at up to 960 px on its long side
+  const m = Math.round(0.06 * Math.max(x1 - x0, y1 - y0)) + 4;
+  const cx0 = Math.max(0, x0 - m); const cy0 = Math.max(0, y0 - m);
+  const cw = Math.min(W, x1 + m + 1) - cx0; const ch = Math.min(H, y1 + m + 1) - cy0;
+  const k = Math.min(960 / Math.max(cw, ch), im.width / W);
+  const OW = Math.max(1, Math.round(cw * k)); const OH = Math.max(1, Math.round(ch * k));
+  const sx = im.width / W;
+  const parts = createCanvas(OW, OH);
+  const px = parts.getContext('2d');
+  px.imageSmoothingQuality = 'high';
+  px.drawImage(im, cx0 * sx, cy0 * sx, cw * sx, ch * sx, 0, 0, OW, OH);
+  px.globalCompositeOperation = 'destination-in';
+  px.filter = `blur(${Math.max(0.6, k * 0.6).toFixed(1)}px)`;
+  px.drawImage(mask, cx0, cy0, cw, ch, 0, 0, OW, OH);
+  const out = createCanvas(OW, OH);
+  const ox = out.getContext('2d');
+  ox.fillStyle = '#ffffff';
+  ox.fillRect(0, 0, OW, OH);
+  ox.drawImage(parts, 0, 0);
+  return 'data:image/jpeg;base64,' + out.toBuffer('image/jpeg', 82).toString('base64');
+}
+
 async function segment(img, opts) {
   const o = opts || {};
   const { loadImage, createCanvas } = require('@napi-rs/canvas');
@@ -592,6 +645,8 @@ async function segment(img, opts) {
     boxes.push({ x0, y0, x1, y1, area });
   }
   const minArea = (W * H) * 0.0006;
+  // the connected components before splitting (lab ids are 1-based indexes into this)
+  const comps = boxes.map((bb) => ({ ...bb }));
   // Touching parts merge into one blob. Split big blobs: erode the mask until thin joins break
   // into several sizable cores, then grow every core back over its blob (geodesic, so each pixel
   // goes to the nearest core). Parts that overlap a lot stay together; parts that only touch
@@ -610,7 +665,9 @@ async function segment(img, opts) {
   }
   const parts = boxes.filter((b) => b.area >= minArea && b.area < W * H * 0.5);
   const max = o.max || 80;
-  if (o.segmentOnly) return { found: parts.length, boxes: parts };
+  // the pile as the user laid it out, with the table removed: the opening shot of build videos
+  const cleanShot = o.clean === false || (o.segmentOnly && !o.withClean) ? null : cleanPile(im, lab, comps, minArea, W, H, createCanvas);
+  if (o.segmentOnly) return { found: parts.length, boxes: parts, ...(cleanShot ? { clean: cleanShot } : {}) };
   if (parts.length > max) throw new Error(`found ${parts.length} parts, more than ${max}: photograph fewer parts at once`);
   // crop each part from the full-resolution image with a margin, recognise in small batches
   const crops = parts.map((b) => {
@@ -649,7 +706,7 @@ async function segment(img, opts) {
     counts.set(k, v);
   }
   const items = [...counts.values()].sort((a, b) => a.color.localeCompare(b.color) || a.id.localeCompare(b.id));
-  return { found: parts.length, recognised: results.filter((r) => r.id).length, items, parts: results };
+  return { found: parts.length, recognised: results.filter((r) => r.id).length, items, parts: results, ...(cleanShot ? { clean: cleanShot } : {}) };
 }
 
 async function identifyPile(src, opts) {
@@ -698,7 +755,7 @@ async function identifyPile(src, opts) {
     counts.set(k, v);
   }
   const items = [...counts.values()].sort((a, b) => a.color.localeCompare(b.color) || a.id.localeCompare(b.id));
-  return { found: Math.max(flat.found, local.found), recognised: kept.length, items, parts: kept, mode: 'merged', passes: { flat: flat.recognised, local: local.recognised } };
+  return { found: Math.max(flat.found, local.found), recognised: kept.length, items, parts: kept, mode: 'merged', passes: { flat: flat.recognised, local: local.recognised }, ...(base.clean ? { clean: base.clean } : {}) };
 }
 
 module.exports = { identify, identifyPile, rankColors, loadImage };

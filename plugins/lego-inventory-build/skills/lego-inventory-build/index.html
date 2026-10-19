@@ -27,7 +27,7 @@
   let view;
   // Render tools inject any model (also JSON ones outside src/models) through window.show().
   window.show = (model, format) => {
-    view = model === 'parts' ? window.PARTS_SHEET : window.LEGO.booklet(model, format || 'vertical');
+    view = model === 'parts' ? window.PARTS_SHEET : window.INTRO_IMAGE ? window.LEGO.bookletWithPile(model, format || 'vertical', window.INTRO_IMAGE) : window.LEGO.booklet(model, format || 'vertical');
     cv.width = view.W;
     cv.height = view.H;
     window.VIEW = view;

@@ -399,4 +399,58 @@
 
     return { W, H, duration: DURATION, draw, signature, parts: COUNT, steps: STEPS.length, title: model.title };
   };
+
+  // A film that opens on the photo of the user's pile (table removed): ~2 s of "here is what you
+  // have", then the pile fades and the build starts. `image` is a decoded, drawable image (both
+  // the browser and @napi-rs/canvas pass one in); the build itself is the plain booklet, shifted.
+  const INTRO = 2.6;
+  LEGO.bookletWithPile = function bookletWithPile(model, format, image) {
+    const film = LEGO.booklet(model, format);
+    if (!image) return film;
+    const L = LAYOUTS[format] || LAYOUTS.vertical;
+    const W = film.W;
+    const H = film.H;
+    const n = film.parts;
+    function pile(ctx, t) {
+      ctx.save();
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, W, H);
+      // the photo, fitted into the model area, easing in slightly; fades out in the last 0.5 s
+      const A = L.area;
+      const aw = A.x1 - A.x0;
+      const ah = A.y1 - A.y0;
+      const k = Math.min(aw / image.width, ah / image.height);
+      const zoom = 0.94 + 0.06 * outCubic(clamp(t / 1.2));
+      const out = clamp((t - (INTRO - 0.5)) / 0.5);
+      const w = image.width * k * zoom;
+      const h = image.height * k * zoom;
+      ctx.globalAlpha = clamp(t / 0.35) * (1 - out);
+      ctx.drawImage(image, A.x0 + (aw - w) / 2, A.y0 + (ah - h) / 2, w, h);
+      // caption where the parts list sits during the build
+      ctx.globalAlpha = clamp((t - 0.2) / 0.35) * (1 - out);
+      ctx.fillStyle = INK;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+      ctx.font = 'bold 72px ' + FONT;
+      ctx.fillText('Мои детали', L.callout.x, L.callout.y + 80);
+      ctx.fillStyle = '#5B6470';
+      ctx.font = '40px ' + FONT;
+      ctx.fillText('Из них: ' + model.title + ' · ' + n + ' ' + plural(n, ['деталь', 'детали', 'деталей']), L.callout.x + 2, L.callout.y + 150);
+      ctx.restore();
+    }
+    return {
+      W, H, parts: film.parts, steps: film.steps, title: film.title,
+      duration: film.duration + INTRO,
+      draw(ctx, t) {
+        if (t < INTRO) pile(ctx, t);
+        else film.draw(ctx, t - INTRO);
+      },
+      signature(t) {
+        // the intro moves all the time except for a short hold: always draw it
+        if (t < INTRO) return null;
+        return film.signature ? film.signature(t - INTRO) : null;
+      },
+    };
+  };
+  LEGO.PILE_INTRO = INTRO;
 })(typeof window !== 'undefined' ? window : globalThis);

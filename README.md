@@ -80,10 +80,12 @@ The token in `?key=` is simple protection for personal use. For a public service
 | `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET`, `YOUTUBE_REFRESH_TOKEN` | copy build videos to your YouTube channel (see below) |
 | `YOUTUBE_PRIVACY`, `YOUTUBE_USERS`, `YOUTUBE_DAILY_MAX` | `unlisted` (or `private` / `public`); whose videos: `owner` (default), a comma list of user ids, or `*`; uploads per day (90) |
 
+**Pile intro.** When the parts list came from a pile photo, build videos of models made from that pile open with ~2.6 s of the pile itself: the photo with the table, floor and shadows removed, every part where it lay, captioned "Мои детали · Из них: <model>". The picture (a ~80 KB JPEG) lives in the user's state as `pile.json`, follows the list through `inventory_undo` and is dropped by `inventory_clear`; a model that uses parts not on that photo gets no intro. Test: `node test/pile-intro.mjs` (real segmentation of a fixture photo).
+
 **YouTube.** Every new build video is also uploaded to your channel after the reply (the card never waits for it). The same film goes up only once, and the next time the card has an "На YouTube" button. Setup, once: in Google Cloud create a project, enable *YouTube Data API v3*, set up the OAuth consent screen (External, publish it so the token doesn't expire in 7 days), create an OAuth client of type *Desktop app*, then run `node scripts/youtube-auth.mjs <client_id> <client_secret>` and add the three printed values to Vercel. Limits: an upload costs 1,600 of the default 10,000 API units per day, so about 6 videos a day unless you ask Google for more. Until the API project passes Google's audit, YouTube locks uploaded videos as private. Test: `node test/youtube.mjs` (mock Google API).
 
 **Analytics** (Amplitude, rules for adding more in `AGENTS.md`). With `AMPLITUDE_API_KEY` set, both servers send events after the reply:
-- MCP server (`platform: mcp`): `session_start`, `user_created`, `tool_call` with tool name, client (chatgpt, claude, codex…), duration, status (429 = daily limit), argument names and a few counts (idea, parts, steps), `video_published` (target youtube, format, steps, parts).
+- MCP server (`platform: mcp`): `session_start`, `user_created`, `tool_call` with tool name, client (chatgpt, claude, codex…), duration, status (429 = daily limit), argument names and a few counts (idea, parts, steps), `video_published` (target youtube, format, steps, parts, pile_intro); `show_build` video calls carry `pile_intro` too.
 - Sign-in server (`platform: auth`): `client_registered`, `authorize_started` / `authorize_error`, `signup`, `login`, `signup_failed` / `login_failed`, `app_connected` / `app_reconnected`, `consent_denied`, `token_issued`, `token_refreshed`, `token_error`, `app_disconnected`, `passkey_added`, `logout`.
 
 A signed-in user has the same anonymous id in both (`"a"` + 24 hex of sha256 of the account id), so the funnel sign-up → connect → tool calls is one person; the owner key is `owner`. Never sent: tokens, codes, keys, account ids, names, e-mails, IPs, photos, part lists, model JSON, media URLs.
@@ -104,7 +106,7 @@ Environment: `AUTH_ISSUER`, `AUTH_RESOURCES`, `AUTH_SIGNING_KEY` (private ES256 
 | Tool | What it does |
 |---|---|
 | `parts_from_photo` | photos of single parts → part number and colour (Brickognize), `add=true` adds them to the inventory. In ChatGPT it accepts uploaded files (`openai/fileParams`) |
-| `parts_from_pile_photo` | a photo of a whole pile → every part found and recognised. The result replaces the saved list by default (`mode: "add"` adds, `"none"` only reports); the previous list is kept, `inventory_undo` brings it back |
+| `parts_from_pile_photo` | a photo of a whole pile → every part found and recognised. The result replaces the saved list by default (`mode: "add"` adds, `"none"` only reports); the previous list is kept, `inventory_undo` brings it back. A cleaned picture of the pile (table removed, parts where they lay) is kept with the list and opens the build videos of models made from it |
 | `lego_photo_guide` | how to read a pile of parts from a photo by eye and write a CSV |
 | `ideas_suggest` / `idea_build` | what can be built from the inventory right now and what is close; generate the chosen idea |
 | `inventory_show` / `inventory_import` / `inventory_add_set` / `inventory_update` / `inventory_undo` / `inventory_clear` | parts inventory: CSV, Rebrickable CSV, BrickLink XML, JSON, set numbers (needs `REBRICKABLE_API_KEY`) |

@@ -19,7 +19,7 @@ export const backend = REDIS_URL && REDIS_TOKEN ? 'redis' : STATE_BLOB ? 'blob' 
 const NS = process.env.LEGO_REDIS_PREFIX || 'lego'; // tests use their own prefix
 
 const LOCAL_STORE = path.join('/tmp/lego', '_store');
-const FILE = /^(inventory(\.prev)?\.json|models\/[a-z0-9_-]{1,64}\.json)$/;
+const FILE = /^(inventory(\.prev)?\.json|pile\.json|models\/[a-z0-9_-]{1,64}\.json)$/;
 const MAX_STATE = 2 * 1024 * 1024; // compressed bytes per user
 const hash = (buf) => crypto.createHash('sha1').update(buf).digest('hex');
 
@@ -100,7 +100,7 @@ export async function load(user, dir) {
   } else {
     const base = path.join(LOCAL_STORE, user);
     const rels = [];
-    for (const f of ['inventory.json', 'inventory.prev.json']) if (fs.existsSync(path.join(base, f))) rels.push(f);
+    for (const f of ['inventory.json', 'inventory.prev.json', 'pile.json']) if (fs.existsSync(path.join(base, f))) rels.push(f);
     if (fs.existsSync(path.join(base, 'models'))) for (const f of fs.readdirSync(path.join(base, 'models'))) rels.push('models/' + f);
     for (const rel of rels.filter((r) => FILE.test(r))) files[rel] = fs.readFileSync(path.join(base, rel), 'utf8');
   }
@@ -114,7 +114,7 @@ export async function load(user, dir) {
 
 function readDir(dir) {
   const files = {};
-  for (const f of ['inventory.json', 'inventory.prev.json']) if (fs.existsSync(path.join(dir, f))) files[f] = fs.readFileSync(path.join(dir, f), 'utf8');
+  for (const f of ['inventory.json', 'inventory.prev.json', 'pile.json']) if (fs.existsSync(path.join(dir, f))) files[f] = fs.readFileSync(path.join(dir, f), 'utf8');
   for (const f of fs.readdirSync(path.join(dir, 'models'))) if (FILE.test('models/' + f)) files['models/' + f] = fs.readFileSync(path.join(dir, 'models', f), 'utf8');
   return files;
 }

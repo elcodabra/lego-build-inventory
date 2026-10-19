@@ -31,7 +31,7 @@ function resultFacts(tool, payload) {
         const list = Array.isArray(sc.ideas) ? sc.ideas : [];
         return { buildable: list.length, almost: Array.isArray(sc.almost) ? sc.almost.length : 0, top_idea: list[0] && list[0].idea, top_uses_percent: list[0] && list[0].usesPercent, drawable_parts: sc.drawableParts, thumbs: list.filter((x) => x.thumbUrl).length };
       }
-      return { model: sc.name, parts: sc.parts, steps: sc.steps, mode: sc.mode, has_video: !!sc.videoUrl };
+      return { model: sc.name, parts: sc.parts, steps: sc.steps, mode: sc.mode, has_video: !!sc.videoUrl, ...(sc.mode === 'video' ? { pile_intro: !!sc.pileIntro } : {}) };
     }
     const t = r.content && r.content[0] && r.content[0].type === 'text' ? r.content[0].text : '';
     if (!t || t[0] !== '{') return {};

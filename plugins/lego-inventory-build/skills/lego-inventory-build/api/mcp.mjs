@@ -255,7 +255,7 @@ export default async function handler(req, res) {
       tags: ['LEGO', 'лего', 'инструкция', 'MOC', meta.title],
       filmKey: meta.key,
     }).then((v) => {
-      if (v) analytics.send([{ user_id: userId, event_type: 'video_published', time: Date.now(), platform: 'mcp', event_properties: { target: 'youtube', format: meta.format, steps: meta.steps, parts: meta.parts } }]);
+      if (v) analytics.send([{ user_id: userId, event_type: 'video_published', time: Date.now(), platform: 'mcp', event_properties: { target: 'youtube', format: meta.format, steps: meta.steps, parts: meta.parts, pile_intro: !!meta.intro } }]);
     }).finally(() => fs.rmSync(keep, { force: true }));
     try { waitUntil(job); } catch { /* not on Vercel: runs anyway */ }
     return null;
