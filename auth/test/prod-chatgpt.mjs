@@ -126,7 +126,8 @@ if (process.env.PILE) {
       let yt = null;
       for (let i = 0; i < 12 && !yt; i++) {
         await new Promise((r) => setTimeout(r, 10000));
-        yt = (await c.callTool({ name: 'show_build', arguments: { name: pidea, mode: 'video' } }, undefined, { timeout: 300000 })).structuredContent.youtubeUrl;
+        const again = await c.callTool({ name: 'show_build', arguments: { name: pidea, mode: 'video' } }, undefined, { timeout: 300000 });
+        yt = again.structuredContent && again.structuredContent.youtubeUrl;
       }
       assert.match(String(yt), /^https:\/\/youtu\.be\//, 'a regular user\'s film reached YouTube');
       ok(`regular user's film uploaded to the channel: ${yt}`);
