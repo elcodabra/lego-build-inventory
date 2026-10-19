@@ -54,7 +54,7 @@ export async function upload(file, { title, description, tags = [], filmKey } = 
     const token = await accessToken();
     const size = fs.statSync(file).size;
     const meta = {
-      snippet: { title: String(title || 'LEGO build').slice(0, 100), description: String(description || '').slice(0, 4900), tags: tags.slice(0, 15), categoryId: '26', defaultLanguage: 'en', defaultAudioLanguage: 'zxx' }, // 26 = Howto & Style; no speech
+      snippet: { title: String(title || 'LEGO build').slice(0, 100), description: String(description || '').slice(0, 4900), tags: tags.slice(0, 15), categoryId: '26', defaultLanguage: 'en' }, // 26 = Howto & Style. (defaultAudioLanguage 'zxx' is rejected with 400 INVALID by videos.insert)
       status: { privacyStatus: PRIVACY, selfDeclaredMadeForKids: false, embeddable: true },
     };
     // 1. start a resumable session

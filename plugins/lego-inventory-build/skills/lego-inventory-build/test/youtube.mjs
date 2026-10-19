@@ -18,6 +18,8 @@ const g = http.createServer((q, s) => {
       assert.match(q.url, /uploadType=resumable/); assert.match(q.url, /notifySubscribers=false/);
       if (failNext) { failNext = false; s.statusCode = 403; return s.end('{"error":{"message":"quotaExceeded"}}'); }
       const meta = JSON.parse(body.toString());
+      // the real API answers 400 INVALID to defaultAudioLanguage 'zxx' (seen in production)
+      if (meta.snippet && meta.snippet.defaultAudioLanguage === 'zxx') { s.statusCode = 400; return s.end('{"error":{"message":"Request contains an invalid argument."}}'); }
       s.setHeader('location', `http://127.0.0.1:18896/session/${uploads.length}`);
       uploads.push({ meta, size: Number(q.headers['x-upload-content-length']) });
       return s.end();
