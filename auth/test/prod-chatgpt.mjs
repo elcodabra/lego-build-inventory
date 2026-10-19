@@ -117,6 +117,20 @@ if (process.env.PILE) {
     assert.ok(!vcard.isError && vcard.structuredContent.videoUrl, vcard.content && vcard.content[0].text);
     const vh = await fetch(vcard.structuredContent.videoUrl, { method: 'HEAD' });
     ok(`video of "${pidea}" in ${((Date.now() - tv) / 1000).toFixed(1)}s, mp4 HTTP ${vh.status}, ${vh.headers.get('content-length')} bytes`);
+    // the film of a model made from the photographed pile opens on that pile
+    assert.equal(vcard.structuredContent.pileIntro, true, 'video opens on the pile photo');
+    ok('video opens on the cleaned pile photo (pileIntro)');
+    // YOUTUBE_USERS=*: a regular user's film is copied to the channel after the reply; the card
+    // links to it the next time (served from the film cache)
+    if (process.env.YOUTUBE) {
+      let yt = null;
+      for (let i = 0; i < 12 && !yt; i++) {
+        await new Promise((r) => setTimeout(r, 10000));
+        yt = (await c.callTool({ name: 'show_build', arguments: { name: pidea, mode: 'video' } }, undefined, { timeout: 300000 })).structuredContent.youtubeUrl;
+      }
+      assert.match(String(yt), /^https:\/\/youtu\.be\//, 'a regular user\'s film reached YouTube');
+      ok(`regular user's film uploaded to the channel: ${yt}`);
+    }
   }
 }
 
