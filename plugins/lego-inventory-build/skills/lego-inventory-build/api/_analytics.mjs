@@ -83,13 +83,19 @@ export function events({ userId, msgs, ua, client, status, ms, payload, error, n
 export async function send(evts) {
   const key = process.env.AMPLITUDE_API_KEY;
   if (!key || !evts.length) return;
-  try {
-    const ctl = new AbortController();
-    const t = setTimeout(() => ctl.abort(), 3000);
-    const r = await fetch(ENDPOINT, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ api_key: key, events: evts }), signal: ctl.signal });
-    clearTimeout(t);
-    if (!r.ok) console.log(JSON.stringify({ ev: 'amplitude_error', status: r.status, body: (await r.text()).slice(0, 200) }));
-  } catch (e) {
-    console.log(JSON.stringify({ ev: 'amplitude_error', err: e.message }));
+  // runs after the reply; one retry for a timeout or network error (a busy instance, e.g. while
+  // rendering a film, can miss the 3 s window once). Amplitude dedups by insert_id.
+  const body = JSON.stringify({ api_key: key, events: evts.map((e, i) => ({ insert_id: e.insert_id || `${e.user_id || e.device_id}-${e.event_type}-${e.time}-${i}`, ...e })) });
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), 3000);
+      const r = await fetch(ENDPOINT, { method: 'POST', headers: { 'content-type': 'application/json' }, body, signal: ctl.signal });
+      clearTimeout(t);
+      if (!r.ok) console.log(JSON.stringify({ ev: 'amplitude_error', status: r.status, body: (await r.text()).slice(0, 200) }));
+      return;
+    } catch (e) {
+      if (attempt === 2) console.log(JSON.stringify({ ev: 'amplitude_error', err: e.message, attempts: attempt }));
+    }
   }
 }
