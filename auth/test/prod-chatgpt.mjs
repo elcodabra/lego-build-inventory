@@ -104,7 +104,8 @@ if (process.env.PILE) {
   if (process.env.IDEAS_OUT) fs.writeFileSync(process.env.IDEAS_OUT, JSON.stringify(card));
   ok(`ideas card: ${card.ideas.map((x) => `${x.title} ${x.parts}`).join(', ')}; ${thumbs.length} pictures from the user's parts, HTTP 200`);
   assert.ok(ps.buildable.length > 0, 'no buildable ideas from the pile');
-  const pidea = ps.buildable[0].idea;
+  // IDEA=spaceship picks a buildable idea by id (default: the first one)
+  const pidea = (process.env.IDEA && ps.buildable.find((x) => x.idea === process.env.IDEA) || ps.buildable[0]).idea;
   await c.callTool({ name: 'idea_build', arguments: { idea: pidea } });
   const pcard = await c.callTool({ name: 'show_build', arguments: { name: pidea, mode: 'steps' } });
   assert.ok(!pcard.isError, pcard.content && pcard.content[0].text);
@@ -119,6 +120,8 @@ if (process.env.PILE) {
     assert.ok(!vcard.isError && vcard.structuredContent.videoUrl, vcard.content && vcard.content[0].text);
     const vh = await fetch(vcard.structuredContent.videoUrl, { method: 'HEAD' });
     ok(`video of "${pidea}" in ${((Date.now() - tv) / 1000).toFixed(1)}s, mp4 HTTP ${vh.status}, ${vh.headers.get('content-length')} bytes`);
+    if (process.env.VIDEO_OUT) fs.writeFileSync(process.env.VIDEO_OUT, Buffer.from(await (await fetch(vcard.structuredContent.videoUrl)).arrayBuffer()));
+    if (process.env.VIDEO_OUT) fs.writeFileSync(process.env.VIDEO_OUT + '.json', JSON.stringify({ bg: vcard.structuredContent.bg, pileIntro: vcard.structuredContent.pileIntro }));
     // the film of a model made from the photographed pile opens on that pile
     assert.equal(vcard.structuredContent.pileIntro, true, 'video opens on the pile photo');
     ok('video opens on the cleaned pile photo (pileIntro)');
