@@ -184,10 +184,15 @@ async function hero(model, opts) {
     for (const spec of st) items.push({ part: L.place(spec), pale: o.upto != null && !last ? 0.45 : 0, halo: last ? 1 : 0 });
   });
   L.draw(x, items, cam, { lineWidth: Math.max(1.5, scale * 0.03) });
-  if (o.upto != null) {
+  if (o.upto != null || o.label != null) {
     x.fillStyle = '#1f2328';
     x.font = `bold ${Math.round(S * 0.09)}px Inter`;
-    x.fillText(String(n), S * 0.05, S * 0.12);
+    x.fillText(String(o.label != null ? o.label : n), S * 0.05, S * 0.12);
+  }
+  if (o.badge) {
+    x.fillStyle = '#6b7280';
+    x.font = `${Math.round(S * 0.035)}px Inter`;
+    x.fillText(String(o.badge), S * 0.05, S * 0.96);
   }
   return c.toBuffer('image/png');
 }

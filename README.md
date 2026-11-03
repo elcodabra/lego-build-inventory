@@ -91,7 +91,7 @@ The token in `?key=` is simple protection for personal use. For a public service
 **YouTube.** Every new build video is also uploaded to your channel after the reply (the card never waits for it). The same film goes up only once, and the next time the card has an "На YouTube" button. Setup, once: in Google Cloud create a project, enable *YouTube Data API v3*, set up the OAuth consent screen (External, publish it so the token doesn't expire in 7 days), create an OAuth client of type *Desktop app*, then run `node scripts/youtube-auth.mjs <client_id> <client_secret>` and add the three printed values to Vercel. Limits: an upload costs 1,600 of the default 10,000 API units per day, so about 6 videos a day unless you ask Google for more (the hosted server runs with `YOUTUBE_USERS=*`, every user's films go to the channel, and `YOUTUBE_DAILY_MAX=6`). Until the API project passes Google's audit, YouTube locks uploaded videos as private. Test: `node test/youtube.mjs` and `node test/youtube-users.mjs` (mock Google API).
 
 **Analytics** (Amplitude, rules for adding more in `AGENTS.md`). With `AMPLITUDE_API_KEY` set, both servers send events after the reply:
-- MCP server (`platform: mcp`): `session_start`, `user_created`, `tool_call` with tool name, client (chatgpt, claude, codex…), duration, status (429 = daily limit), argument names and a few counts (idea, parts, steps), `video_published` (target youtube, format, steps, parts, pile_intro); `show_build` video calls carry `pile_intro` too.
+- MCP server (`platform: mcp`): `session_start`, `user_created`, `tool_call` with tool name, client (chatgpt, claude, codex…), duration, status (429 = daily limit), argument names and a few counts (idea, parts, steps), `video_published` (target youtube, format, steps, parts, pile_intro); `show_build` video calls carry `pile_intro` too. `model_disassemble` adds `disassembly_opened` (model, mode, parts, steps, ms) and `exploded_view_rendered` (model, parts).
 - Sign-in server (`platform: auth`): `client_registered`, `authorize_started` / `authorize_error`, `signup`, `login`, `signup_failed` / `login_failed`, `app_connected` / `app_reconnected`, `consent_denied`, `token_issued`, `token_refreshed`, `token_error`, `app_disconnected`, `passkey_added`, `logout`.
 
 A signed-in user has the same anonymous id in both (`"a"` + 24 hex of sha256 of the account id), so the funnel sign-up → connect → tool calls is one person; the owner key is `owner`. Never sent: tokens, codes, keys, account ids, names, e-mails, IPs, photos, part lists, model JSON, media URLs.
@@ -122,6 +122,7 @@ Environment: `AUTH_ISSUER`, `AUTH_RESOURCES`, `AUTH_SIGNING_KEY` (private ES256 
 | `model_save` / `model_list` / `model_get` | saved models and the examples (cat, microduck) |
 | `model_preview` | PNG frames straight into the chat (the model can see them and fix things) |
 | `model_render` | mp4 of the build |
+| `model_disassemble` | how to take a saved or built-in model apart, as a card: exact parts list, exploded view and reverse steps (the build steps backwards, straight from the stored JSON). The card switches Build ↔ Disassemble; nothing in the model or the inventory changes. The order is consistent with the model data but not physically tested |
 
 Data lives in `~/.lego-build/` (`LEGO_DATA_DIR`) and is shared between the skill CLI and the MCP server.
 

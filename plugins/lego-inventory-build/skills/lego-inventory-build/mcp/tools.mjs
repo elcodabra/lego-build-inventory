@@ -202,7 +202,7 @@ export function buildServer(opts) {
   }));
 
   // card widget: shared by the ideas list and every visual tool (declared before the tools use it)
-  const PLAYER_URI = 'ui://lego/card-v5.html';
+  const PLAYER_URI = 'ui://lego/card-v6.html';
   const colorInfo = (k) => core.LEGO.COLORS[k] || { hex: '#999', ru: k };
   // Every tool that produces something visual answers with the same card, so the user sees the
   // model whichever of them the chat model happens to pick.
@@ -587,6 +587,62 @@ export function buildServer(opts) {
     annotations: ro,
     _meta: cardMeta,
   }, safe(async ({ name, mode, format }) => (await card(core.loadModel(name), mode || 'picture', format, name)).result));
+
+  // ---------------------------------------------------------------- disassembly of a known model
+
+  // Reverse instructions straight from the stored JSON: reverse step k removes original step N-k+1
+  // (outlined), the exploded view lifts each build step apart for the picture only. The model,
+  // its BOM and the inventory are never changed.
+  s.registerTool('model_disassemble', {
+    title: 'Disassemble a known model',
+    description: 'Show how to take a SAVED or built-in model apart, as a card: exact parts list, exploded view and reverse steps ' +
+      '(the build steps backwards, taken from the model JSON). mode "picture" (default): model + exploded view; mode "steps": also the reverse steps. ' +
+      'Use it after the user confirms which model it is (e.g. after model_analyze_photo). Use show_build to go back to building.',
+    inputSchema: {
+      name: z.string().describe('saved or built-in model name (see model_list)'),
+      mode: z.enum(['picture', 'steps']).optional(),
+    },
+    annotations: ro,
+    _meta: cardMeta,
+  }, safe(async ({ name, mode }) => {
+    const dis = require('../lib/disassembly.cjs');
+    const nf = require('../lib/nodefilm.cjs');
+    const m = core.loadModel(name);
+    const md = mode || 'picture';
+    const inv = dis.assertReverseInvariant(m);
+    const N = m.steps.length;
+    const base = String(m.name || name).replace(/[^a-z0-9_-]+/gi, '-');
+    const shots = [
+      { f: `${base}-model.png`, png: () => nf.hero(m, { size: 720 }) },
+      { f: `${base}-exploded.png`, png: () => nf.hero(dis.explodedScene(m), { size: 720, badge: 'Exploded view: illustration only' }) },
+    ];
+    // reverse step k: what is still on the model, the parts to take off now outlined
+    if (md === 'steps') {
+      for (let k = 1; k <= N; k++) shots.push({ f: `${base}-unbuild${k}.png`, png: () => nf.hero(m, { size: 720, upto: N - k + 1, label: k, badge: `Disassembly ${k}/${N}: remove the outlined parts` }) });
+    }
+    const urls = [];
+    await Promise.all(shots.map(async (sh, i) => {
+      const f = path.join(exportsDir(), sh.f);
+      fs.writeFileSync(f, await sh.png());
+      urls[i] = await fileUrl(f);
+    }));
+    const bom = dis.disassemblyBOM(m).map((b) => ({ id: b.id, name: core.LEGO.LIB[b.id] ? core.LEGO.LIB[b.id].ru : b.id, color: b.color, colorName: colorInfo(b.color).ru, hex: colorInfo(b.color).hex, qty: b.qty }));
+    const data = {
+      name: m.name || name, title: m.title, parts: inv.parts, steps: N, format: 'vertical', mode: md,
+      posterUrl: urls[0], stepUrls: urls.slice(2), videoUrl: null, bom,
+      disassembly: { direction: 'disassemble', explodedUrl: urls[1], source: 'exact-model-json', sequence: inv.sequence, physicallyValidated: false },
+    };
+    const md2 = [urls[0] ? `![${m.title}](${urls[0]})` : '', urls[1] ? `![Exploded view](${urls[1]})` : '',
+      ...urls.slice(2).map((u, i) => (u ? `![Разборка ${i + 1}](${u})` : ''))].filter(Boolean).join('\n');
+    return {
+      structuredContent: data,
+      content: [{ type: 'text', text:
+        `Карточка разборки «${m.title}» (${inv.parts} деталей, ${N} шагов) показана. Список деталей и шаги взяты из точного JSON модели; ` +
+        `порядок разборки = шаги сборки в обратном порядке, физически не проверен. Ответь одной фразой` +
+        (md === 'picture' ? ' и предложи «шаги разборки».' : '.') +
+        `\nЕсли карточки не видно, вставь этот markdown:\n${md2}` }],
+    };
+  }));
 
   s.registerTool('model_render', {
     title: 'Render build video',

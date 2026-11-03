@@ -31,6 +31,7 @@ function resultFacts(tool, payload) {
         const list = Array.isArray(sc.ideas) ? sc.ideas : [];
         return { buildable: list.length, almost: Array.isArray(sc.almost) ? sc.almost.length : 0, top_idea: list[0] && list[0].idea, top_uses_percent: list[0] && list[0].usesPercent, drawable_parts: sc.drawableParts, thumbs: list.filter((x) => x.thumbUrl).length };
       }
+      if (sc.disassembly) return { model: sc.name, parts: sc.parts, steps: sc.steps, mode: sc.mode, direction: 'disassemble', exploded: !!sc.disassembly.explodedUrl, step_images: Array.isArray(sc.stepUrls) ? sc.stepUrls.length : 0 };
       return { model: sc.name, parts: sc.parts, steps: sc.steps, mode: sc.mode, has_video: !!sc.videoUrl, ...(sc.mode === 'video' ? { pile_intro: !!sc.pileIntro } : {}) };
     }
     const t = r.content && r.content[0] && r.content[0].type === 'text' ? r.content[0].text : '';
@@ -73,6 +74,14 @@ export function events({ userId, msgs, ua, client, status, ms, payload, error, n
         },
         user_properties: { $set: { last_client: client }, $add: { tool_calls: 1 } },
       });
+      // feature events (same request, value-free): the disassembly funnel
+      if (tool === 'model_disassemble' && !error && msgs.length === 1) {
+        const f = resultFacts(tool, payload);
+        if (f.direction) {
+          out.push({ ...base, event_type: 'disassembly_opened', event_properties: { client, model: f.model, mode: f.mode, parts: f.parts, steps: f.steps, ms } });
+          if (f.exploded) out.push({ ...base, event_type: 'exploded_view_rendered', event_properties: { client, model: f.model, parts: f.parts } });
+        }
+      }
     } else {
       out.push({ ...base, event_type: m.method === 'initialize' ? 'session_start' : 'mcp_' + m.method.replace(/\W+/g, '_'), event_properties: { client, status, ms } });
     }
