@@ -101,7 +101,7 @@ const cue = (kind) => cues.push({ t: now(), kind, i: cues.length, k: cues.length
 const caption = async (html) => {
   await p.evaluate((h) => { const c = document.getElementById('cap'); c.innerHTML = h; c.hidden = false; }, html);
   const start = now();
-  await wait(Math.max(1600, html.replace(/<[^>]+>/g, '').length * 55));
+  await wait(Math.max(2100, html.replace(/<[^>]+>/g, '').length * 45));
   subs.push({ start, end: now(), text: html.replace(/<[^>]+>/g, '') });
 };
 const user = (text, img) => p.evaluate(({ text, img }) => {
@@ -131,14 +131,13 @@ const showTop = (i) => p.evaluate((n) => { const f = window.frames_[n]; f.parent
 const imgReady = async (i, sel) => frame(i).locator(sel).evaluate((im) => (im.decode ? im.decode() : null), null, { timeout: 5000 }).catch(() => {});
 
 // ---- scene 1: a real photo of an unknown build -> honest no match + how to add a model
-await caption('Take a photo of a LEGO model you <b>already built</b>, and get an exact way to take it apart.');
+await caption('Photo of a LEGO model you <b>already built</b> → exact way to take it apart.');
 await user('What is this model and how do I take it apart?', realUrl);
 cue('step');
 const i1 = await assistantCard('Here is what I can see. It does not match any of your models, so I will not make up instructions.', { structuredContent: r1 });
 cue('intro');
 await showTop(i1);
-await caption(`A <b>real iPhone photo</b>, analysed live by <b>Meta Muse Spark 1.3</b> (${(r1.provider.ms / 1000).toFixed(1)} s).`);
-await caption('Unknown build: <b>no match</b>, so no made-up steps. The card explains how to add a model.');
+await caption(`<b>Real iPhone photo</b> · live <b>Meta Muse Spark 1.3</b> · <b>no match</b>, so no made-up steps.`);
 
 // ---- scene 2: a known model -> confirm -> exact data
 await user('And this one?', catUrl);
@@ -146,35 +145,34 @@ cue('step');
 const i2 = await assistantCard('This looks like one of your models. Please confirm.', { structuredContent: r2 });
 cue('intro');
 await showTop(i2);
-await caption(`A <b>render</b> of the built-in cat (no physical one built yet). AI estimate: <b>${r2.candidates[0] ? r2.candidates[0].title : 'none'}</b>, ${r2.analysis.match_confidence} confidence.`);
-await caption('The AI only suggests. <b>You</b> confirm the match.');
+await caption(`Render of the built-in cat · AI suggests <b>${r2.candidates[0] ? r2.candidates[0].title : 'none'}</b> · <b>you</b> confirm.`);
 await click(i2, 'button[data-confirm]');
 await frame(i2).locator('.tag', { hasText: 'Based on exact model JSON' }).waitFor({ timeout: 60000 });
 await imgReady(i2, '.stage img');
 await showTop(i2);
-await caption('<b>Exact</b> parts list and geometry from the saved model: 106 parts, 17 steps.');
+await caption('<b>Exact</b> parts and geometry from the saved model: 106 parts.');
 
 // ---- scene 3: exploded, reverse steps, build again
 await click(i2, '#explode');
 await imgReady(i2, '.stage img');
-await caption('Exploded view: the build steps pulled apart. An illustration, not a tested removal path.');
+await caption('Exploded view (illustration).');
 await click(i2, 'button[data-dmode=steps]');
 await frame(i2).locator('#next').waitFor({ timeout: 60000 });
 await imgReady(i2, '#stepimg');
 await showTop(i2);
-await caption('Disassembly steps: each one outlines the parts to remove next.');
-for (let k = 0; k < 4; k++) { await click(i2, '#next'); await imgReady(i2, '#stepimg'); await wait(650); }
+await caption('Disassembly: parts to remove next are outlined.');
+for (let k = 0; k < 4; k++) { await click(i2, '#next'); await imgReady(i2, '#stepimg'); await wait(350); }
 await click(i2, 'button[data-dir=build]');
 await frame(i2).locator('button[data-dir=build][aria-pressed=true]').waitFor({ timeout: 60000 });
 await imgReady(i2, '#stepimg');
-await caption('One switch back to <b>Build</b>: the same parts in build order. Your model and parts list never change.');
+await caption('Back to <b>Build</b>: same parts, build order.');
 
 // ---- scene 4: how to add more models
 await p.evaluate((n) => window.frames_[n].parentElement.scrollIntoView({ block: 'start' }), i1);
 await frame(i1).locator('.add').evaluate((el) => { el.style.outline = '3px solid #FFD21A'; el.style.outlineOffset = '3px'; });
-await caption('<b>Add more models:</b> photograph your loose bricks to get build ideas, or describe a model. Every saved model can then be recognised and taken apart.');
+await caption('<b>Add models:</b> snap your loose bricks for build ideas, or describe one.');
 cue('done');
-await caption('Real Meta API · you confirm the match · exact data · honest limits. <b>LEGO from My Bricks</b>');
+await caption('Real Meta API · you confirm · exact data. <b>LEGO from My Bricks</b>');
 const total = now();
 
 const vid = p.video();
