@@ -6,6 +6,8 @@ A Skill plus an MCP server for Claude and ChatGPT. It designs LEGO models **only
 
 **Main scenario: photograph your parts → get ideas for what you can build → get the instructions.**
 
+**New (Meta Global AI Developer Hackathon, Nov 2026): photograph a model you already built → take it apart, build something else.** Meta SAM 3.1 outlines the build and Meta Muse Spark 1.3 describes it and suggests which of your saved models it is; you confirm, and the card shows the exact parts list, an exploded view, reverse steps and a disassembly film from the model's real data, then new models from the same bricks (with a BrickLink wanted list for anything missing). The AI only estimates and proposes; exact instructions come only from a confirmed, saved model. Demo script, what is exact vs estimated, limits and what existed before the event (`git tag pre-hackathon`): [docs/meta-hackathon-demo.md](docs/meta-hackathon-demo.md). Code: `lib/meta.cjs`, `lib/analyze.cjs`, `lib/segment.cjs`, `lib/disassembly.cjs`, `lib/shopping.cjs`. *LEGO® is a trademark of the LEGO Group, which does not sponsor, authorize or endorse this project.*
+
 ```
 📷 photo of one part  → Brickognize (part number + colour) ─┐
 📷 photo of a pile    → Claude/ChatGPT reads it by eye → CSV ─┼→ inventory → ideas_suggest → idea_build → preview / mp4
