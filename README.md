@@ -36,7 +36,7 @@ scripts/install.sh                     installing and packaging
 | **Codex CLI / ChatGPT desktop** | plugin (skill + MCP) | `codex plugin marketplace add <repo>` → `codex plugin add lego-inventory-build@lego-tools` (or `scripts/install.sh codex`) |
 | **ChatGPT web** | remote MCP (HTTP) | see below |
 
-On first launch the MCP server runs `npm install` and fetches Chromium for Playwright by itself (~100 MB, once). You also need **Node 20+** and **ffmpeg** (only for mp4).
+On first launch the MCP server runs `npm install` and fetches Chromium for Playwright by itself (about 550 MB on disk, once). You also need **Node 20+** and **ffmpeg** (only for mp4).
 
 ### ChatGPT (web, developer mode)
 
