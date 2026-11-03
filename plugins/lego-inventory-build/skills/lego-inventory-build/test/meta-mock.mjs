@@ -98,6 +98,10 @@ assert.ok(['cat', 'microduck', 'cottage'].every((n) => names.includes(n)), 'buil
 assert.equal(names.length, 12);
 for (let i = 0; i < 20; i++) fs.rmSync(path.join(md, `user${i}.json`));
 ok('with 20 saved models the built-in cat/microduck stay in the candidate list (cap 12)');
+// a PNG labelled image/jpeg (as iPhone HEIC uploads arrive mislabelled): the bytes decide
+const mislabeled = await an.preparePhoto(photoUrl.replace('data:image/png', 'data:image/jpeg'));
+assert.ok(mislabeled.width > 0);
+ok('image type comes from the bytes, not the data: URL label');
 
 console.log('errors');
 await fails('429', 'QUOTA_EXCEEDED');

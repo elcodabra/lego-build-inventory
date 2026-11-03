@@ -120,7 +120,10 @@ async function loadImageRaw(src) {
   if (/^data:/.test(s)) {
     const m = s.match(/^data:([^;,]+);base64,([\s\S]*)$/);
     if (!m) throw new Error('bad data: URL (base64 expected)');
-    return { buf: Buffer.from(m[2], 'base64'), mime: m[1] };
+    // the bytes decide: iPhone HEIC photos often arrive labelled image/jpeg
+    const buf = Buffer.from(m[2], 'base64');
+    const sniffed = sniff(buf);
+    return { buf, mime: sniffed !== 'application/octet-stream' ? sniffed : m[1] };
   }
   if (/^https?:\/\//i.test(s)) return download(s);
   if (!safeMode() && fs.existsSync(s)) { const buf = fs.readFileSync(s); return { buf, mime: sniff(buf), name: path.basename(s) }; }

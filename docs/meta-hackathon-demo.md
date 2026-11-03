@@ -106,3 +106,14 @@ About $0.005-0.007 per analysis (real usage from the API). Caps: `META_BUDGET_US
 - Live MCP server: https://lego-mcp.vercel.app/mcp
 - Video: TODO
 - Track: Indie Developer (check against the form). Eligibility and rules: check in the signed-in form.
+
+## Real photos (2026-11-03 20:09 CET)
+
+Two iPhone photos of physical LEGO builds that are NOT among the known models (a plum-blossom bonsai
+and a Minecraft Ender Dragon): spark 1.3 / 1.2 / 1.1 all returned no match on both (6/6 correct
+"none", `test/results/meta-compare-2026-11-03-19-09.json`). The descriptions were specific and
+right (e.g. "LEGO Minecraft Ender Dragon figure with outstretched membraned wings"), with honest
+uncertainties and suggested extra angles. Prod: the raw HEIC → status ok, 0 candidates
+(`resp_6aea31de3240c465285241cb`). Found and fixed: a HEIC labelled image/jpeg failed to decode.
+
+Still missing: a real photo of a model that IS known (cat / microduck / cottage) for the positive case.
