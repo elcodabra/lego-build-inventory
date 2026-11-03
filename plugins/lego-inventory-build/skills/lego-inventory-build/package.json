@@ -19,8 +19,10 @@
     "mosaic": "node tools/mosaic.cjs",
     "mcp": "node mcp/server.mjs",
     "mcp:http": "node mcp/server.mjs --http",
-    "test": "node test/security.mjs && node test/disassembly.mjs && node test/smoke.mjs",
-    "deploy": "vercel deploy --prod"
+    "test": "node test/security.mjs && node test/disassembly.mjs && node test/meta-mock.mjs && node test/smoke.mjs",
+    "deploy": "vercel deploy --prod",
+    "test:meta-live": "node --use-system-ca --env-file=.env.local test/meta-live.mjs",
+    "meta:compare": "node --use-system-ca --env-file=.env.local test/meta-compare.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",

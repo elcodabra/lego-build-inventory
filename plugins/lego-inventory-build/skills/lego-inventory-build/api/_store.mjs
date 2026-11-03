@@ -264,3 +264,37 @@ export async function releaseYoutubeSlot(sha) {
   await redis(['DEL', `${NS}:yt-lock:${sha}`]);
   await redis(['DECR', `${NS}:yt-count:${day}`]);
 }
+
+// ---------------------------------------------------------------- Meta API spend (lib/budget.cjs)
+// One global counter for all instances, micro-USD integers. reserve() is atomic: it adds the
+// worst-case price only if both the total and today's counters stay under their caps.
+const BUDGET_RESERVE = `local t = tonumber(redis.call('GET', KEYS[1]) or '0')
+local d = tonumber(redis.call('GET', KEYS[2]) or '0')
+local a = tonumber(ARGV[1])
+if t + a > tonumber(ARGV[2]) then return 'total:' .. t end
+if d + a > tonumber(ARGV[3]) then return 'daily:' .. d end
+redis.call('INCRBY', KEYS[1], a)
+redis.call('INCRBY', KEYS[2], a)
+redis.call('EXPIRE', KEYS[2], 172800)
+return 'ok'`;
+export function metaBudgetStore() {
+  if (backend !== 'redis') return null; // lib/budget.cjs falls back to a local file
+  const day = () => new Date().toISOString().slice(0, 10);
+  const K = { total: `${NS}:meta:spent`, day: () => `${NS}:meta:spent:${day()}`, calls: `${NS}:meta:calls` };
+  return {
+    async reserve(amount, lim) {
+      const r = await redis(['EVAL', BUDGET_RESERVE, '2', K.total, K.day(), String(amount), String(lim.total), String(lim.daily)]);
+      if (r === 'ok') return { ok: true };
+      const [which, spent] = String(r).split(':');
+      return { ok: false, which, spent: Number(spent), cap: which === 'total' ? lim.total : lim.daily };
+    },
+    async adjust(delta, calls) {
+      if (delta) { await redis(['INCRBY', K.total, String(Math.round(delta))]); await redis(['INCRBY', K.day(), String(Math.round(delta))]); }
+      if (calls) await redis(['INCRBY', K.calls, String(calls)]);
+    },
+    async status() {
+      const [t, d, c] = await Promise.all([redis(['GET', K.total]), redis(['GET', K.day()]), redis(['GET', K.calls])]);
+      return { total: Number(t || 0), today: Number(d || 0), calls: Number(c || 0) };
+    },
+  };
+}

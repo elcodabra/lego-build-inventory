@@ -31,7 +31,7 @@ function resultFacts(tool, payload) {
         const list = Array.isArray(sc.ideas) ? sc.ideas : [];
         return { buildable: list.length, almost: Array.isArray(sc.almost) ? sc.almost.length : 0, top_idea: list[0] && list[0].idea, top_uses_percent: list[0] && list[0].usesPercent, drawable_parts: sc.drawableParts, thumbs: list.filter((x) => x.thumbUrl).length };
       }
-      if (sc.disassembly) return { model: sc.name, parts: sc.parts, steps: sc.steps, mode: sc.mode, direction: 'disassemble', exploded: !!sc.disassembly.explodedUrl, step_images: Array.isArray(sc.stepUrls) ? sc.stepUrls.length : 0 };
+      if (sc.disassembly) return { model: sc.name, parts: sc.parts, steps: sc.steps, mode: sc.mode, direction: 'disassemble', exploded: !!(sc.disassembly.explodedRendered || sc.disassembly.explodedUrl), step_images: Array.isArray(sc.stepUrls) ? sc.stepUrls.length : 0 };
       return { model: sc.name, parts: sc.parts, steps: sc.steps, mode: sc.mode, has_video: !!sc.videoUrl, ...(sc.mode === 'video' ? { pile_intro: !!sc.pileIntro } : {}) };
     }
     const t = r.content && r.content[0] && r.content[0].type === 'text' ? r.content[0].text : '';
@@ -49,6 +49,20 @@ function resultFacts(tool, payload) {
     return {};
   } catch {
     return {};
+  }
+}
+
+// model_analyze_photo: provider model, outcome, candidate count, confidence. Never the photo, the
+// AI's free text, the hint or the response id.
+function analysisFacts(payload) {
+  try {
+    const sc = JSON.parse(payload).result.structuredContent;
+    if (sc.status === 'ok') {
+      return { ok: true, props: { provider_model: sc.provider && sc.provider.model, provider_ms: sc.provider && sc.provider.ms, candidates: (sc.candidates || []).length, top_match: sc.candidates && sc.candidates[0] ? sc.candidates[0].name : undefined, match_confidence: sc.analysis && sc.analysis.match_confidence, is_lego: sc.analysis && sc.analysis.is_lego_model } };
+    }
+    return { ok: false, props: { error_code: sc.error } };
+  } catch {
+    return null; // no analysis result (quota hit, bad arguments): Meta was not involved
   }
 }
 
@@ -80,7 +94,12 @@ export function events({ userId, msgs, ua, client, status, ms, payload, error, n
         if (f.direction) {
           out.push({ ...base, event_type: 'disassembly_opened', event_properties: { client, model: f.model, mode: f.mode, parts: f.parts, steps: f.steps, ms } });
           if (f.exploded) out.push({ ...base, event_type: 'exploded_view_rendered', event_properties: { client, model: f.model, parts: f.parts } });
+          if (args.confirmed === true) out.push({ ...base, event_type: 'model_match_confirmed', event_properties: { client, model: f.model } });
         }
+      }
+      if (tool === 'model_analyze_photo' && msgs.length === 1) {
+        const a = analysisFacts(payload);
+        if (a) out.push({ ...base, event_type: a.ok ? 'photo_model_analyzed' : 'meta_request_failed', event_properties: { client, ms, ...a.props } });
       }
     } else {
       out.push({ ...base, event_type: m.method === 'initialize' ? 'session_start' : 'mcp_' + m.method.replace(/\W+/g, '_'), event_properties: { client, status, ms } });

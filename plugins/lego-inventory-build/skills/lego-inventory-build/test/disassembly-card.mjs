@@ -91,6 +91,24 @@ ok('Disassemble -> Build keeps the steps view and returns to build step 1');
 assert.deepEqual(calls, ['model_disassemble:picture', 'model_disassemble:steps', 'show_build:steps']);
 await p.close();
 
+// 1b) analysis card (synthetic result, no API call): AI estimate tag, confirm -> exact disassembly
+const analysis = { structuredContent: { kind: 'analysis', status: 'ok', provider: { model: 'muse-spark-1.3', ms: 9000 },
+  analysis: { is_lego_model: true, object_summary: 'orange <b>cat</b>', visible_colours: ['orange', 'white'], visible_parts: [{ category: 'brick', count_estimate: 20, confidence: 'medium' }], possible_model_names: ['cat'], match_confidence: 'high', uncertainties: ['back hidden'], suggested_views: ['side'] },
+  candidates: [{ name: 'cat', title: 'Котик', parts: 106, steps: 17, rank: 1, label: 'possible match' }] } };
+const A = await card(760, analysis);
+assert.match(await A.f.locator('.tag.warn').textContent(), /AI estimate/);
+assert.equal(await A.f.locator('p b').count(), 0, 'AI text is escaped, not HTML');
+await A.p.screenshot({ path: path.join(OUT, '0-analysis.png') });
+await A.f.locator('button[data-confirm=cat]').click();
+await A.f.locator('.tag', { hasText: 'Based on exact model JSON' }).waitFor({ timeout: 30000 });
+assert.deepEqual(A.calls, ['model_disassemble:']);
+ok('analysis card: AI estimate tag, escaped AI text, "Это Котик" confirms -> exact disassembly card');
+const un = await card(390, { structuredContent: { kind: 'analysis', status: 'unavailable', error: 'META_UNAVAILABLE', candidates: [], known: [{ name: 'cat', title: 'Котик', parts: 106 }, { name: 'microduck', title: 'Microduck', parts: 54 }] } });
+assert.equal(await un.f.locator('button[data-confirm]').count(), 2);
+assert.match(await un.f.locator('h2').textContent(), /недоступен/);
+ok('Meta unavailable: card offers known models to pick by hand');
+await A.p.close(); await un.p.close();
+
 // 2) mobile width: nothing overflows horizontally, toggle reachable
 const mob = await c.callTool({ name: 'model_disassemble', arguments: { name: 'microduck' } });
 const m = await card(390, mob);

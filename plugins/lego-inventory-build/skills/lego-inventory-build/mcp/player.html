@@ -154,8 +154,35 @@
     }
   }
 
+  function showAnalysis(d) {
+    data = d;
+    app.className = 'card';
+    const a = d.analysis || {};
+    const cands = d.candidates || [];
+    const known = d.known || [];
+    app.innerHTML = `
+      <div class="side" style="flex:1 1 100%">
+        <h2>${d.status === 'ok' ? 'Что на фото' : 'AI-анализ недоступен'}</h2>
+        ${d.status === 'ok' ? `
+          <div><span class="tag warn">AI estimate</span><span class="q">${esc(d.provider && d.provider.model)}</span></div>
+          <p>${esc(a.object_summary)}</p>
+          <div class="sub">Видны цвета: ${(a.visible_colours || []).map(esc).join(', ')}</div>
+          <div class="sub">Примерно: ${(a.visible_parts || []).map((p) => `${esc(p.category)} ~${num(p.count_estimate)}`).join(', ')}</div>
+          ${(a.uncertainties || []).length ? `<div class="sub">Не видно: ${(a.uncertainties || []).map(esc).join('; ')}</div>` : ''}
+          <h3 style="margin:10px 0 4px;font-size:15px">${cands.length ? 'Возможное совпадение: подтверди' : 'Совпадений среди известных моделей нет'}</h3>
+          ${cands.length ? '' : `<div class="sub">Попробуй другой ракурс: ${(a.suggested_views || []).map(esc).join(', ')}</div>`}` : `
+          <div class="sub">Фото не анализировалось (${esc(d.error)}). Выбери модель сам: точная разборка работает без AI.</div>`}
+        <div class="row" style="margin-top:6px">
+          ${(cands.length ? cands : known).map((c, i) => `<button class="act ${cands.length && i === 0 ? 'primary' : ''}" data-confirm="${esc(c.name)}">${cands.length ? 'Это ' : ''}${esc(c.title)} · ${num(c.parts)} дет.</button>`).join('')}
+        </div>
+      </div>`;
+    app.querySelectorAll('button[data-confirm]').forEach((b) => { b.onclick = () => run('model_disassemble', { name: b.dataset.confirm, confirmed: true }, b); });
+    sizeChanged();
+  }
+
   function show(d) {
     if (d && d.kind === 'ideas') return showIdeas(d);
+    if (d && d.kind === 'analysis') return showAnalysis(d);
     if (!d || !d.name) return;
     if (!data || data.name !== d.name || data.mode !== d.mode || !!data.disassembly !== !!d.disassembly) { step = 0; exploded = false; }
     data = d;

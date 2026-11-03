@@ -601,6 +601,7 @@ export function buildServer(opts) {
     inputSchema: {
       name: z.string().describe('saved or built-in model name (see model_list)'),
       mode: z.enum(['picture', 'steps']).optional(),
+      confirmed: z.boolean().optional().describe('true when the user picked this model after model_analyze_photo'),
     },
     annotations: ro,
     _meta: cardMeta,
@@ -630,7 +631,7 @@ export function buildServer(opts) {
     const data = {
       name: m.name || name, title: m.title, parts: inv.parts, steps: N, format: 'vertical', mode: md,
       posterUrl: urls[0], stepUrls: urls.slice(2), videoUrl: null, bom,
-      disassembly: { direction: 'disassemble', explodedUrl: urls[1], source: 'exact-model-json', sequence: inv.sequence, physicallyValidated: false },
+      disassembly: { direction: 'disassemble', explodedUrl: urls[1], explodedRendered: true, source: 'exact-model-json', sequence: inv.sequence, physicallyValidated: false },
     };
     const md2 = [urls[0] ? `![${m.title}](${urls[0]})` : '', urls[1] ? `![Exploded view](${urls[1]})` : '',
       ...urls.slice(2).map((u, i) => (u ? `![Разборка ${i + 1}](${u})` : ''))].filter(Boolean).join('\n');
@@ -641,6 +642,54 @@ export function buildServer(opts) {
         `порядок разборки = шаги сборки в обратном порядке, физически не проверен. Ответь одной фразой` +
         (md === 'picture' ? ' и предложи «шаги разборки».' : '.') +
         `\nЕсли карточки не видно, вставь этот markdown:\n${md2}` }],
+    };
+  }));
+
+  // ---------------------------------------------------------------- photo of a built model (Meta AI)
+
+  // The AI estimate never becomes geometry: it only proposes up to 3 KNOWN models; the user picks
+  // one in the card (or says which), and only then model_disassemble draws the exact model.
+  s.registerTool('model_analyze_photo', {
+    title: 'Recognise a built model from a photo',
+    description: 'Use this when the user shows a photo of an ALREADY BUILT LEGO model and wants to know what it is or how to take it apart. ' +
+      'Pass the uploaded file. Meta Muse Spark describes the visible colours and parts (an estimate) and suggests up to 3 possible matches among the saved and built-in models. ' +
+      'Show the card and ASK the user to confirm the match; call model_disassemble only for the model the user confirmed. Never present the estimate as exact parts. Takes 5-20 s.',
+    inputSchema: {
+      files: z.array(FileObj).max(1).optional().describe('the uploaded photo (ChatGPT)'),
+      image: z.string().optional().describe('or the photo as an https URL, data: URL or base64'),
+      hint: z.string().max(120).optional().describe('what the user says it is, e.g. "a cat"'),
+    },
+    annotations: hints(true, false, false, true),
+    _meta: { ...cardMeta, 'openai/fileParams': ['files'] },
+  }, safe(async ({ files, image, hint }) => {
+    const src = (files && files[0] && files[0].download_url) || image;
+    if (!src) throw new Error('pass "files" (the uploaded photo) or "image"');
+    const an = require('../lib/analyze.cjs');
+    const { budget } = require('../lib/budget.cjs');
+    let r;
+    try {
+      r = await an.analyze({ src, hint, budget: budget(opts && opts.metaBudgetStore) });
+    } catch (e) {
+      const code = e.code || 'META_UNAVAILABLE';
+      if (opts && opts.onMeta) opts.onMeta({ ok: false, code, model: e.model, costUsd: e.costUsd });
+      const data = { kind: 'analysis', status: 'unavailable', error: code, candidates: [], known: an.candidates().map((c) => ({ name: c.name, title: c.title, parts: c.parts })) };
+      return {
+        isError: code === 'INVALID_IMAGE',
+        structuredContent: data,
+        content: [{ type: 'text', text: `AI-анализ фото сейчас недоступен (${code}). Ничего не придумывай про фото. ` +
+          'Предложи пользователю самому выбрать модель из списка (model_list) и показать её разборку model_disassemble: она работает без AI.' }],
+      };
+    }
+    if (opts && opts.onMeta) opts.onMeta({ ok: true, model: r.provider.model, costUsd: r.provider.costUsd, ms: r.provider.ms, candidates: r.candidates.length, confidence: r.analysis.match_confidence });
+    const data = { kind: 'analysis', status: 'ok', analysis: r.analysis, candidates: r.candidates, provider: { model: r.provider.model, responseId: r.provider.responseId, ms: r.provider.ms } };
+    const found = r.candidates.length;
+    return {
+      structuredContent: data,
+      content: [{ type: 'text', text:
+        `Muse Spark (${r.provider.model}) описал фото: ${r.analysis.object_summary}. ` +
+        (found
+          ? `Возможные совпадения среди известных моделей: ${r.candidates.map((c) => `${c.title} (${c.name})`).join(', ')}. Это предположение по фото. Спроси пользователя, та ли это модель; разборку (model_disassemble) покажи только после подтверждения.`
+          : 'Ни одна известная модель не подходит. Не подбирай модель наугад: честно скажи это и предложи снять с других ракурсов (' + (r.analysis.suggested_views.join(', ') || 'сбоку, сзади') + ') или выбрать модель вручную.') }],
     };
   }));
 
