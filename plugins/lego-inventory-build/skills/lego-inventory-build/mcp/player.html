@@ -18,6 +18,7 @@
   /* the film is drawn on a light page colour (d.bg, set inline): keep the bars around it that
      colour too (fullscreen letterboxes a vertical film with black by default) */
   .full > video { background: #fff; object-fit: contain; }
+  .stage.full.h { display: flex; align-items: center; }
   .nav { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; border-top: 1px solid var(--line); background: #fff; color: #1f2328; }
   .nav button { border: 0; background: var(--chip); color: #1f2328; width: 34px; height: 34px; border-radius: 50%; font-size: 18px; cursor: pointer; }
   .nav button[disabled] { opacity: .35; cursor: default; }
@@ -53,7 +54,7 @@
   .tag { display: inline-block; font-size: 12px; border-radius: 6px; padding: 2px 7px; margin: 0 4px 4px 0; background: #e7f6ec; color: #14532d; }
   .tag.warn { background: #fff4d6; color: #713f12; }
   .add { margin-top: 10px; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 12px; }
-  .seg-img { display: block; max-width: 100%; max-height: 300px; border-radius: 12px; margin: 6px 0 8px; }
+  .seg-img { display: block; width: auto; height: auto; max-width: 100%; max-height: 320px; object-fit: contain; border-radius: 12px; margin: 6px 0 8px; }
   button:focus-visible, a.act:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
 </style>
 </head>

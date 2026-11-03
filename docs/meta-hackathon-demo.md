@@ -39,7 +39,8 @@ New in this hackathon (branch `feat/meta-hackathon-reverse-build`):
 - `muse-spark-1.3` (Standard mode) via `POST https://api.meta.ai/v1/responses`, image input as a
   JPEG data URL, `text.format` JSON schema, `reasoning.effort: low`.
 - Fallback list `muse-spark-1.3,muse-spark-1.2` (switch with `META_MODELS`).
-- Not used: SAM 3.1 (P1, not started), Contributor mode (would let Meta train on user photos).
+- `sam-3.1` (SAM 3.1) on the same photo, in parallel with Muse Spark: prompt "LEGO model" outlines the build, "LEGO brick" boxes visible bricks (confidence >= 0.45). Masks decoded with `@meta-sam/parser`. $0.0025 per image, 2 per analysis. Highlights only what is visible.
+- Not used: Contributor mode (would let Meta train on user photos).
 
 ## Exact vs estimated (what the card says)
 
@@ -98,13 +99,14 @@ About $0.005-0.007 per analysis (real usage from the API). Caps: `META_BUDGET_US
 - Disassembly order = build steps reversed. Consistent with the model data, not physically tested.
 - Exploded view is an illustration (layers lifted apart), not an extraction path.
 - Matching is limited to the built-in examples (cat, microduck, cottage) and the user's saved models (12 candidates per call).
-- Not built: Duplo, Arduino / Raspberry Pi, SAM 3.1 segmentation, reconstruction of unknown models.
+- SAM boxes are visible regions on the photo, not part identification or counts of the whole model.
+- Not built: Duplo, Arduino / Raspberry Pi, reconstruction of unknown models.
 
 ## Links (fill in)
 
 - Repo: https://github.com/elcodabra/lego-build-inventory (branch `feat/meta-hackathon-reverse-build`, not pushed yet)
 - Live MCP server: https://lego-mcp.vercel.app/mcp
-- Video: draft `promo/hackathon/demo-en.mp4` (0:26, English, captions in the frame + `demo-en.srt` for upload, original synthesized marimba music from `lib/sound.cjs`, no third-party audio). Recorded on production by `test/record-demo.mjs`; real photo `resp_6aea48f2199af2168143481d`, render `resp_6aea48fba1d66b6152be45c2`. Not uploaded yet.
+- Video: draft `promo/hackathon/demo-en.mp4` (0:34, English, captions in the frame + `demo-en.srt`, original synthesized music). Scenes: real dragon photo with SAM 3.1 outline + Muse description, no match; cat render, confirm, exact card; exploded; disassembly steps; Build; disassembly film; how to add a model. Recorded on production by `test/record-demo.mjs`. Not uploaded yet.
 - Track: Indie Developer (check against the form). Eligibility and rules: check in the signed-in form.
 
 ## Real photos (2026-11-03 20:09 CET)

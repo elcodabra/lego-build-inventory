@@ -45,6 +45,9 @@ const warm = async (name, args) => { const r = await c.callTool({ name, argument
 await warm('model_disassemble', { name: pick, confirmed: true, ...EN });
 await warm('model_disassemble', { name: pick, mode: 'steps', ...EN });
 await warm('show_build', { name: pick, mode: 'steps', ...EN });
+// the disassembly film (reversed build film, rendered on the server; cached there after the first time)
+const unbuild = await warm('model_disassemble', { name: pick, mode: 'video', ...EN });
+if (!unbuild.structuredContent.videoUrl) throw new Error('no disassembly video');
 console.log(JSON.stringify({ precomputed_s: Math.round((Date.now() - t0) / 1000), real_photo_response: r1.provider.responseId, render_response: r2.provider.responseId, top: pick }));
 
 // ---- 2) the page
@@ -81,7 +84,7 @@ await p.evaluate(({ html }) => {
     if (!f) return;
     if (m.method === 'ui/initialize') f.contentWindow.postMessage({ jsonrpc: '2.0', id: m.id, result: { protocolVersion: '2026-01-26', hostInfo: { name: 'demo', version: '0' }, hostCapabilities: {}, hostContext: { theme: 'light' } } }, '*');
     if (m.method === 'ui/notifications/initialized') f.contentWindow.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: f.__result }, '*');
-    if (m.method === 'ui/notifications/size-changed' && m.params) f.style.height = Math.min(620, Math.max(160, m.params.height + 4)) + 'px';
+    if (m.method === 'ui/notifications/size-changed' && m.params) f.style.height = Math.min(1200, Math.max(160, m.params.height + 4)) + 'px';
     if (m.method === 'tools/call') window.hostCall(m.params).then((r) => f.contentWindow.postMessage({ jsonrpc: '2.0', id: m.id, result: r }, '*'));
   });
 }, { html: res.text.replace('<head>', `<head><meta http-equiv="Content-Security-Policy" content="${csp}">`) });
@@ -146,7 +149,11 @@ cue('step');
 const i1 = await assistantCard('Here is what I can see. It does not match any of your models, so I will not make up instructions.', { structuredContent: r1 });
 cue('intro');
 await showTop(i1);
-await caption(`<b>Real iPhone photo</b> · live <b>Meta Muse Spark 1.3</b> · <b>no match</b>, so no made-up steps.`);
+await caption(`<b>Real iPhone photo</b> · <b>Meta SAM 3.1</b> outlines the model · <b>Muse Spark 1.3</b> describes it.`);
+await p.evaluate((n) => { const f = window.frames_[n]; f.parentElement.scrollIntoView({ block: 'start' }); }, i1);
+// then down to the description and the "no match" block below the overlay
+await p.evaluate(() => document.getElementById('chat').scrollBy(0, 330));
+await caption('Unknown build: <b>no match</b>, so no made-up steps.');
 
 // ---- scene 2: a known model -> confirm -> exact data
 await user('And this one?', catUrl);
@@ -175,6 +182,17 @@ await click(i2, 'button[data-dir=build]');
 await frame(i2).locator('button[data-dir=build][aria-pressed=true]').waitFor({ timeout: 60000 });
 await imgReady(i2, '#stepimg');
 await caption('Back to <b>Build</b>: same parts, build order.');
+
+// ---- scene 3b: the disassembly film
+await click(i2, 'button[data-dir=disassemble]');
+await frame(i2).locator('button[data-dmode=video]').waitFor({ timeout: 60000 });
+await click(i2, 'button[data-dmode=video]');
+await frame(i2).locator('video').waitFor({ timeout: 120000 });
+await frame(i2).locator('video').evaluate((v) => new Promise((ok) => { if (v.readyState >= 3) ok(); else v.addEventListener('canplay', ok, { once: true }); setTimeout(ok, 8000); }));
+await frame(i2).locator('video').evaluate((v) => { v.muted = true; v.currentTime = Math.max(0, v.duration - 9); return v.play(); }).catch(() => {});
+await showTop(i2);
+await caption('<b>Disassembly film</b>: the build played backwards, part by part.');
+await wait(3000);
 
 // ---- scene 4: how to add more models
 await p.evaluate((n) => window.frames_[n].parentElement.scrollIntoView({ block: 'start' }), i1);
