@@ -106,7 +106,7 @@ About $0.005-0.007 per analysis (real usage from the API). Caps: `META_BUDGET_US
 
 - Repo: https://github.com/elcodabra/lego-build-inventory (branch `feat/meta-hackathon-reverse-build`, not pushed yet)
 - Live MCP server: https://lego-mcp.vercel.app/mcp
-- Video: draft `promo/hackathon/demo-en.mp4` (0:34, English, captions in the frame + `demo-en.srt`, original synthesized music). Scenes: real dragon photo with SAM 3.1 outline + Muse description, no match; cat render, confirm, exact card; exploded; disassembly steps; Build; disassembly film; how to add a model. Recorded on production by `test/record-demo.mjs`. Not uploaded yet.
+- Video: draft `promo/hackathon/demo-en.mp4` (0:39, English, captions in the frame + `demo-en.srt`, original synthesized music). Scenes: real dragon photo with SAM 3.1 outline + Muse description, no match; cat render, confirm, exact card; exploded; disassembly steps; Build; disassembly film; rebuild: 6 new models from the cat's 106 parts, cat to spaceship; how to add a model. Recorded on production by `test/record-demo.mjs`. Not uploaded yet.
 - Track: Indie Developer (check against the form). Eligibility and rules: check in the signed-in form.
 
 ## Real photos (2026-11-03 20:09 CET)

@@ -48,6 +48,11 @@ await warm('show_build', { name: pick, mode: 'steps', ...EN });
 // the disassembly film (reversed build film, rendered on the server; cached there after the first time)
 const unbuild = await warm('model_disassemble', { name: pick, mode: 'video', ...EN });
 if (!unbuild.structuredContent.videoUrl) throw new Error('no disassembly video');
+// the rebuild loop: ideas from the cat's own parts, and the first one built
+const rebuildIdeas = await warm('ideas_suggest', { from_model: pick, ...EN });
+const firstIdea = rebuildIdeas.structuredContent.ideas[0].idea;
+await warm('idea_build', { idea: firstIdea, from_model: pick });
+await warm('show_build', { name: firstIdea, mode: 'picture', ...EN });
 console.log(JSON.stringify({ precomputed_s: Math.round((Date.now() - t0) / 1000), real_photo_response: r1.provider.responseId, render_response: r2.provider.responseId, top: pick }));
 
 // ---- 2) the page
@@ -193,6 +198,18 @@ await frame(i2).locator('video').evaluate((v) => { v.muted = true; v.currentTime
 await showTop(i2);
 await caption('<b>Disassembly film</b>: the build played backwards, part by part.');
 await wait(3000);
+
+// ---- scene 3c: rebuild from the same parts
+await click(i2, 'button[data-rebuild]');
+await frame(i2).locator('.ideas').waitFor({ timeout: 60000 });
+await frame(i2).locator('.idea img').first().evaluate((im) => im.decode && im.decode(), null, { timeout: 5000 }).catch(() => {});
+await showTop(i2);
+await caption(`<b>Rebuild</b>: ${rebuildIdeas.structuredContent.ideas.length} new models from the cat's own 106 parts.`);
+await click(i2, 'button[data-idea]');
+await frame(i2).locator('button[data-dir=build][aria-pressed=true]').waitFor({ timeout: 60000 });
+await imgReady(i2, '.stage img');
+await showTop(i2);
+await caption(`Cat → <b>${rebuildIdeas.structuredContent.ideas[0].title}</b>, same bricks. Your parts list is untouched.`);
 
 // ---- scene 4: how to add more models
 await p.evaluate((n) => window.frames_[n].parentElement.scrollIntoView({ block: 'start' }), i1);
