@@ -208,11 +208,10 @@ fs.writeFileSync(srtFile, srt);
 const sound = require('../lib/sound.cjs');
 const wavFile = path.join(TMP, 'music.wav');
 fs.writeFileSync(wavFile, sound.wav(sound.synth(vlen, cues.map((x) => ({ ...x, t: x.t + shift })), { title: 'LEGO from My Bricks demo', step: 1.7 })));
-// Subtitles: the caption bar is drawn in the page (visible everywhere); the same lines also go in as
-// a soft English track and a .srt (YouTube upload, translation). BURN=1 additionally burns the .srt.
+// Subtitles: drawn in the frame (the caption bar). No subtitle track in the mp4, players would draw
+// it on top of the same text; the .srt is written next to it for YouTube upload / translation only.
 const args = ['-y', '-ss', redEnd.toFixed(3), '-i', webm, '-i', wavFile];
-if (process.env.BURN === '1') args.push('-vf', `subtitles=${srtFile.replace(/:/g, '\\:')}:force_style='FontSize=20,MarginV=40'`);
-args.push('-i', srtFile, '-map', '0:v', '-map', '1:a', '-map', '2:s', '-c:s', 'mov_text', '-metadata:s:s:0', 'language=eng',
+args.push('-map', '0:v', '-map', '1:a', '-sn',
   '-r', '25', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '22', '-c:a', 'aac', '-b:a', '128k', '-t', vlen.toFixed(2), '-movflags', '+faststart', OUT);
 execFileSync(ff, args, { stdio: 'ignore' });
 console.log(JSON.stringify({ out: OUT, srt: srtFile, bytes: fs.statSync(OUT).size, seconds: Math.round(vlen), sync_at: redEnd, subtitles: subs.length, sound_cues: cues.length }));
