@@ -34,4 +34,8 @@ Files touched: `lib/disassembly.cjs` (new), `lib/meta.cjs` (new), `lib/nodefilm.
 - `OFFLINE=1 npm test`: security + smoke all pass.
 - `npm test` online: fails at `parts_from_photo (Brickognize)` assertion (external recogniser returns no
   part for the fixtures). Pre-existing, unrelated to this work.
-- `node test/meta-live.mjs`: skipped, `MODEL_API_KEY` is not set locally or in Vercel env yet.
+- `node --use-system-ca --env-file=.env.local test/meta-live.mjs` (2026-11-03 15:38 CET): ok, model
+  `muse-spark-1.3`, response `resp_6ae9ffef577e3a5950f34489`, 71 input / 775 output tokens (759 reasoning), 8.9 s, 1 attempt.
+  Locally Node needs `--use-system-ca` (otherwise `UNABLE_TO_GET_ISSUER_CERT_LOCALLY`; curl works).
+  Reasoning eats most of `max_output_tokens`: raise the limit for the structured photo analysis (Stage C).
+- Vercel `MODEL_API_KEY`: not confirmed yet (`vercel env ls` failed locally with `fetch failed`, same TLS cause).

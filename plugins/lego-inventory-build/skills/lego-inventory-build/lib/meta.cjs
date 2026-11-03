@@ -63,7 +63,7 @@ async function respond({ input, schema, schemaName, fetchImpl }) {
         signal: AbortSignal.timeout(CONFIG.timeoutMs),
       });
     } catch (e) {
-      lastErr = new MetaError('META_UNAVAILABLE', e.name === 'TimeoutError' ? 'Meta API timed out' : 'Meta API unreachable', { attempts: attempt });
+      lastErr = new MetaError('META_UNAVAILABLE', e.name === 'TimeoutError' ? 'Meta API timed out' : 'Meta API unreachable' + (e.cause && e.cause.code ? ' (' + e.cause.code + ')' : ''), { attempts: attempt });
       continue;
     }
     if (res.status === 429) throw new MetaError('QUOTA_EXCEEDED', 'Meta API rate limit or quota reached', { status: 429, attempts: attempt });
