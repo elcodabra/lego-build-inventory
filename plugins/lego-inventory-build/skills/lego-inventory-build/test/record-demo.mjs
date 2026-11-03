@@ -205,6 +205,10 @@ await frame(i2).locator('.ideas').waitFor({ timeout: 60000 });
 await frame(i2).locator('.idea img').first().evaluate((im) => im.decode && im.decode(), null, { timeout: 5000 }).catch(() => {});
 await showTop(i2);
 await caption(`<b>Rebuild</b>: ${rebuildIdeas.structuredContent.ideas.length} new models from the cat's own 106 parts.`);
+if (rebuildIdeas.structuredContent.almost && rebuildIdeas.structuredContent.almost.some((a) => a.wantedUrl)) {
+  await frame(i2).locator('.almost a').first().evaluate((el) => { el.style.outline = '3px solid #FFD21A'; el.style.outlineOffset = '2px'; el.scrollIntoView({ block: 'center' }); });
+  await caption('Almost there? One click: a <b>BrickLink wanted list</b> of the missing parts.');
+}
 await click(i2, 'button[data-idea]');
 await frame(i2).locator('button[data-dir=build][aria-pressed=true]').waitFor({ timeout: 60000 });
 await imgReady(i2, '.stage img');

@@ -28,7 +28,11 @@ New in this hackathon (branch `feat/meta-hackathon-reverse-build`):
   step paging (buttons and arrow keys).
 - `lib/meta.cjs` + `lib/analyze.cjs`: Meta Model API client (Responses API, structured output),
   photo analysis with a server-side allowlist of model names, Zod validation, model fallback list.
-- `model_analyze_photo` MCP tool and the analysis card with explicit user confirmation.
+- `model_analyze_photo` MCP tool and the analysis card with explicit user confirmation; up to 3 angles of one model in one Muse request.
+- `lib/segment.cjs`: SAM 3.1 overlay (model outline + visible bricks boxed) on the analysed photo.
+- Disassembly film (`model_disassemble mode=video`): the build film reversed, video and sound.
+- Rebuild loop (`ideas_suggest` / `idea_build` with `from_model`): new models from a disassembled model's own parts; BrickLink wanted-list XML (`lib/shopping.cjs`) for ideas that are close.
+- English card (`lang: en`), second built-in demo model `cottage`.
 - `lib/budget.cjs`: spend cap (total and daily) shared across instances in Redis, settled to real
   API usage.
 - Tests: `test/disassembly.mjs`, `test/disassembly-card.mjs`, `test/meta-mock.mjs`,
@@ -106,7 +110,7 @@ About $0.005-0.007 per analysis (real usage from the API). Caps: `META_BUDGET_US
 
 - Repo: https://github.com/elcodabra/lego-build-inventory (branch `feat/meta-hackathon-reverse-build`, not pushed yet)
 - Live MCP server: https://lego-mcp.vercel.app/mcp
-- Video: draft `promo/hackathon/demo-en.mp4` (0:39, English, captions in the frame + `demo-en.srt`, original synthesized music). Scenes: real dragon photo with SAM 3.1 outline + Muse description, no match; cat render, confirm, exact card; exploded; disassembly steps; Build; disassembly film; rebuild: 6 new models from the cat's 106 parts, cat to spaceship; how to add a model. Recorded on production by `test/record-demo.mjs`. Not uploaded yet.
+- Video: draft `promo/hackathon/demo-en.mp4` (0:42, English, captions in the frame + `demo-en.srt`, original synthesized music). Scenes: real dragon photo with SAM 3.1 outline + Muse description, no match; cat render, confirm, exact card; exploded; disassembly steps; Build; disassembly film; rebuild: 6 new models from the cat's 106 parts + BrickLink wanted list for ideas that are close; cat to spaceship; how to add a model. Recorded on production by `test/record-demo.mjs`. Not uploaded yet.
 - Track: Indie Developer (check against the form). Eligibility and rules: check in the signed-in form.
 
 ## Real photos (2026-11-03 20:09 CET)
