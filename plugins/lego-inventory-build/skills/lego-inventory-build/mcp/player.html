@@ -76,14 +76,16 @@
       buildSteps: 'Шаги картинками', video: '▶ Видео сборки', mp4: 'Скачать mp4', yt: 'На YouTube', mode: 'Режим', retry: ' (ошибка, ещё раз)',
       onPhoto: 'Что на фото', aiOff: 'AI-анализ недоступен', colours: 'Видны цвета', rough: 'Примерно', hidden: 'Не видно',
       confirm: 'Возможное совпадение: подтверди', noMatch: 'Совпадений среди известных моделей нет', angles: 'Попробуй другой ракурс', itIs: 'Это ',
-      addTitle: 'Как добавить модель', addHow: 'Разборка работает для любой сохранённой модели. Сфотографируй кучу деталей, и я предложу идеи, или попроси собрать модель по описанию. После сохранения её можно узнать по фото.', addIdeas: 'Идеи из моих деталей',
+      addTitle: 'Как добавить модель', addHow: 'Разборка работает для любой сохранённой модели. Сфотографируй кучу деталей, и я предложу идеи, или попроси собрать модель по описанию. После сохранения её можно узнать по фото.', addIdeas: 'Идеи из моих деталей', rebuild: '♲ Собрать другое из этих деталей', buildIt: 'Собрать', building: 'Собираю…', almost: 'Почти', missing: 'не хватает',
+      ideasSub: (n) => `Картинки собраны из твоих ${n} деталей. Первая идея берёт больше всего деталей.`, ideasFromModel: (n) => `Только детали разобранной модели (${n} шт.). Твой список деталей не меняется.`,
       notAnalysed: (e) => `Фото не анализировалось (${e}). Выбери модель сам: точная разборка работает без AI.` },
     en: { drawing: 'Drawing…', step: 'Step', unbuild: 'Disassembly', of: 'of', back: 'Back', fwd: 'Next', parts: 'parts', steps: 'steps', pcs: 'parts',
       notChecked: 'Physical removal not verified', unbuildSteps: 'Disassembly steps', unbuildVideo: '▶ Disassembly video', finished: 'Finished model', assembled: 'Assembled',
       buildSteps: 'Build steps', video: '▶ Build video', mp4: 'Download mp4', yt: 'On YouTube', mode: 'Mode', retry: ' (error, try again)',
       onPhoto: 'What is in the photo', aiOff: 'AI analysis unavailable', colours: 'Visible colours', rough: 'Roughly', hidden: 'Not visible',
       confirm: 'Possible match: please confirm', noMatch: 'No match among your known models', angles: 'Try another angle', itIs: 'It is ',
-      addTitle: 'How to add a model', addHow: 'Disassembly works for any saved model. Snap a photo of your loose bricks and I will suggest builds, or ask me to design one from a description. Once saved, it can be recognised from a photo.', addIdeas: 'Ideas from my bricks',
+      addTitle: 'How to add a model', addHow: 'Disassembly works for any saved model. Snap a photo of your loose bricks and I will suggest builds, or ask me to design one from a description. Once saved, it can be recognised from a photo.', addIdeas: 'Ideas from my bricks', rebuild: '♲ Build something else from these parts', buildIt: 'Build', building: 'Building…', almost: 'Almost', missing: 'missing',
+      ideasSub: (n) => `Pictures made from your ${n} parts. The first idea uses the most parts.`, ideasFromModel: (n) => `Only the parts of the model you took apart (${n}). Your parts list does not change.`,
       notAnalysed: (e) => `The photo was not analysed (${e}). Pick the model yourself: the exact disassembly works without AI.` },
   };
   const t = (k) => T[LANG][k];
@@ -143,21 +145,22 @@
 
   function showIdeas(d) {
     data = d;
+    LANG = d.lang === 'en' ? 'en' : 'ru';
     app.className = 'ideas';
     const items = d.ideas || [];
     app.innerHTML = `
       <h2>${esc(d.title)}</h2>
-      <div class="sub">Картинки собраны из твоих ${num(d.drawableParts)} деталей. Первая идея берёт больше всего деталей.</div>
+      <div class="sub">${d.fromModel ? t('ideasFromModel')(num(d.drawableParts)) : t('ideasSub')(num(d.drawableParts))}</div>
       ${items.map((it, i) => `
         <div class="idea ${i === 0 ? 'top' : ''}">
           ${url(it.thumbUrl) ? `<img src="${url(it.thumbUrl)}" alt="${esc(it.title)}">` : ''}
           <div class="tx">
             <b>${esc(it.title)}</b>
-            <span class="q">${num(it.parts)} деталей · ${num(it.usesPercent)}% кучи</span>
-            <button class="act ${i === 0 ? 'primary' : ''}" data-idea="${esc(it.idea)}">Собрать</button>
+            <span class="q">${num(it.parts)} ${t('parts')} · ${num(it.usesPercent)}%</span>
+            <button class="act ${i === 0 ? 'primary' : ''}" data-idea="${esc(it.idea)}">${t('buildIt')}</button>
           </div>
         </div>`).join('')}
-      ${(d.almost || []).map((a) => `<div class="almost">Почти: <b>${esc(a.title)}</b>, не хватает ${(a.missing || []).map((m) => `${esc(m.name)} ${esc(String(m.color || '').toLowerCase())} ×${num(m.qty)}`).join(', ')}</div>`).join('')}`;
+      ${(d.almost || []).map((a) => `<div class="almost">${t('almost')}: <b>${esc(a.title)}</b>, ${t('missing')} ${(a.missing || []).map((m) => `${esc(m.name)} ${esc(String(m.color || '').toLowerCase())} ×${num(m.qty)}`).join(', ')}</div>`).join('')}`;
     app.querySelectorAll('button[data-idea]').forEach((b) => { b.onclick = () => buildIdea(b.dataset.idea, b); });
     sizeChanged();
   }
@@ -165,14 +168,14 @@
   async function buildIdea(idea, btn) {
     btn.disabled = true;
     const old = btn.textContent;
-    btn.textContent = 'Собираю…';
+    btn.textContent = t('building');
     try {
-      await callTool('idea_build', { idea });
-      const r = await callTool('show_build', { name: idea, mode: 'picture' });
+      await callTool('idea_build', { idea, ...(data && data.fromModel ? { from_model: data.fromModel } : {}) });
+      const r = await callTool('show_build', { name: idea, mode: 'picture', ...(LANG === 'en' ? { lang: 'en' } : {}) });
       const sc = r && (r.structuredContent || (r.result && r.result.structuredContent));
       if (sc) show(sc); else throw new Error('no result');
     } catch (e) {
-      btn.disabled = false; btn.textContent = old + ' (ошибка, ещё раз)';
+      btn.disabled = false; btn.textContent = old + t('retry');
     }
   }
 
@@ -234,6 +237,7 @@
           ${d.mode !== 'steps' ? `<button class="act primary" data-dmode="steps">${t('unbuildSteps')}</button>` : ''}
           ${d.mode !== 'picture' ? `<button class="act" data-dmode="picture">${t('finished')}</button>` : ''}
           ${d.mode !== 'video' ? `<button class="act" data-dmode="video">${t('unbuildVideo')}</button>` : ''}
+          <button class="act" data-rebuild="1">${t('rebuild')}</button>
           ${d.mode === 'picture' && url(dis.explodedUrl) ? `<button class="act" id="explode" aria-pressed="${exploded}">${exploded ? t('assembled') : 'Exploded'}</button>` : ''}` : `
           ${d.mode !== 'steps' ? `<button class="act primary" data-mode="steps">${t('buildSteps')}</button>` : ''}
           ${d.mode !== 'video' ? `<button class="act" data-mode="video">${t('video')}</button>` : `<a class="act" href="${url(d.videoUrl)}" target="_blank" rel="noopener">${t('mp4')}</a>`}
@@ -243,6 +247,7 @@
       </div>`;
     app.querySelectorAll('button[data-mode]').forEach((b) => { b.onclick = () => switchMode(b.dataset.mode, b); });
     app.querySelectorAll('button[data-dmode]').forEach((b) => { b.onclick = () => run('model_disassemble', { name: data.name, mode: b.dataset.dmode, ...langArg }, b); });
+    app.querySelectorAll('button[data-rebuild]').forEach((b) => { b.onclick = () => run('ideas_suggest', { from_model: data.name, ...langArg }, b); });
     app.querySelectorAll('button[data-dir]').forEach((b) => {
       b.onclick = () => {
         const toDis = b.dataset.dir === 'disassemble';

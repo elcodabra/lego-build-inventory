@@ -328,9 +328,16 @@ export function buildServer(opts) {
     description: 'Use this when the user asks what they can build from their parts. Shows the ideas as a card with a REAL picture of each model built from the user\'s own parts (and a «Собрать» button), plus ideas that are close with the exact parts missing. ' +
       'The card is the answer: never add pictures from the web or of official sets, and do not invent ideas that are not in the list.',
     annotations: ro,
+    inputSchema: {
+      from_model: z.string().optional().describe('use the parts of this saved/built-in model instead of the inventory ("what else can I build from the cat")'),
+      lang: z.enum(['ru', 'en']).optional(),
+    },
     _meta: cardMeta,
-  }, safe(async () => {
-    const inv = core.loadInventory();
+  }, safe(async ({ from_model, lang } = {}) => {
+    const EN = lang === 'en';
+    // parts of a known model (its exact BOM) instead of the inventory; the inventory is not touched
+    const fromM = from_model ? core.loadModel(from_model) : null;
+    const inv = fromM ? { items: core.bom(fromM).map((b) => ({ id: b.id, color: b.color, qty: b.qty })) } : core.loadInventory();
     const s = ideas.suggest(inv);
     if (!s.drawableParts) return text('Inventory is empty: ask for photos of the parts (parts_from_photo), a parts list (inventory_import) or set numbers (inventory_add_set).');
     // a thumbnail of every buildable idea, built from these very parts (same generator as idea_build)
@@ -345,9 +352,10 @@ export function buildServer(opts) {
       } catch { return null; }
     }));
     const data = {
-      kind: 'ideas', name: 'ideas', title: 'Что собрать из твоих деталей', drawableParts: s.drawableParts,
-      ideas: list.map((b, i) => ({ idea: b.idea, title: b.title, about: b.about, parts: b.parts, steps: b.steps, usesPercent: b.usesPercent, thumbUrl: thumbs[i] || null })),
-      almost: s.almost.slice(0, 2).map((a) => ({ idea: a.idea, title: a.title, missing: (a.missing || []).slice(0, 4).map((m) => ({ name: m.name || m.id, color: colorInfo(m.color).ru, qty: m.qty })) })),
+      kind: 'ideas', name: 'ideas', ...(EN ? { lang: 'en' } : {}), ...(fromM ? { fromModel: from_model } : {}),
+      title: fromM ? (EN ? `What else to build from the ${ideas.titleEn(fromM.title)}'s ${fromM.steps.flat().length} parts` : `Что ещё собрать из деталей «${fromM.title}»`) : (EN ? 'What to build from your bricks' : 'Что собрать из твоих деталей'), drawableParts: s.drawableParts,
+      ideas: list.map((b, i) => ({ idea: b.idea, title: EN ? ideas.titleEn(b.title) : b.title, about: b.about, parts: b.parts, steps: b.steps, usesPercent: b.usesPercent, thumbUrl: thumbs[i] || null })),
+      almost: s.almost.slice(0, 2).map((a) => ({ idea: a.idea, title: EN ? ideas.titleEn(a.title) : a.title, missing: (a.missing || []).slice(0, 4).map((m) => ({ name: EN ? require('../lib/i18n.cjs').partEn(m.name || m.id) : (m.name || m.id), color: EN ? (colorInfo(m.color).name || m.color) : colorInfo(m.color).ru, qty: m.qty })) })),
     };
     return {
       structuredContent: data,
@@ -366,11 +374,13 @@ export function buildServer(opts) {
       idea: z.enum(Object.keys(ideas.GENERATORS)),
       size: z.union([z.number().int(), z.string()]).optional().describe('sizeIndex or size label from ideas_suggest; default: largest that fits'),
       allowMissing: z.boolean().optional().describe('build even if parts are missing (lists what to add)'),
+      from_model: z.string().optional().describe('build from the parts of this saved/built-in model (after ideas_suggest from_model)'),
     },
     annotations: hints(false, false, true, false), // overwrites the saved model of that idea with the same result
     _meta: { 'openai/widgetAccessible': true }, // the ideas card's «Собрать» button calls it
-  }, safe(async ({ idea, size, allowMissing }) => {
-    const inv = core.loadInventory();
+  }, safe(async ({ idea, size, allowMissing, from_model }) => {
+    const fromM = from_model ? core.loadModel(from_model) : null;
+    const inv = fromM ? { items: core.bom(fromM).map((b) => ({ id: b.id, color: b.color, qty: b.qty })) } : core.loadInventory();
     const r = ideas.build(idea, inv, size, { shopping: !!allowMissing });
     const saved = core.saveModel({ ...r.model, name: idea });
     const check = core.fullCheck(core.loadModel(saved.name), inv);

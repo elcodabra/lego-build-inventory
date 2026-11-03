@@ -97,6 +97,10 @@ export function events({ userId, msgs, ua, client, status, ms, payload, error, n
           if (args.confirmed === true) out.push({ ...base, event_type: 'model_match_confirmed', event_properties: { client, model: f.model } });
         }
       }
+      // the rebuild loop: ideas from a disassembled model's own parts, and a build from them
+      if ((tool === 'ideas_suggest' || tool === 'idea_build') && typeof args.from_model === 'string' && !error && msgs.length === 1) {
+        out.push({ ...base, event_type: tool === 'ideas_suggest' ? 'rebuild_ideas_shown' : 'rebuild_model_built', event_properties: { client, from_model: args.from_model.slice(0, 40), idea: tool === 'idea_build' && typeof args.idea === 'string' ? args.idea : undefined } });
+      }
       if (tool === 'model_analyze_photo' && msgs.length === 1) {
         const a = analysisFacts(payload);
         if (a) out.push({ ...base, event_type: a.ok ? 'photo_model_analyzed' : 'meta_request_failed', event_properties: { client, ms, ...a.props } });

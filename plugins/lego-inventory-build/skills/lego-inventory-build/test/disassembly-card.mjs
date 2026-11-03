@@ -143,6 +143,14 @@ const vsrc = await E.f.locator('video').getAttribute('src');
 assert.match(vsrc, /-unbuild-16x9\.mp4$/);
 assert.ok(fs.statSync(path.join(DATA, 'exports', decodeURIComponent(vsrc.split('/').pop()))).size > 50000);
 ok('disassembly video: reversed build film shown in the card');
+// rebuild loop in the card: ideas from the house's parts, "Build" makes one from them
+await E.f.locator('button[data-rebuild]').click();
+await E.f.locator('.ideas').waitFor({ timeout: 60000 });
+assert.match(await E.f.locator('h2').textContent(), /House's 38 parts/);
+assert.ok(!/[А-Яа-яЁё]/.test(await E.f.locator('body').innerText()), 'Cyrillic in the English ideas card');
+await E.f.locator('button[data-idea]').first().click();
+await E.f.locator('button[data-dir=build][aria-pressed=true]').waitFor({ timeout: 60000 });
+ok('rebuild: ideas card from the model\'s own parts (English), Build makes the new model');
 await E.p.close();
 
 // 2) mobile width: nothing overflows horizontally, toggle reachable

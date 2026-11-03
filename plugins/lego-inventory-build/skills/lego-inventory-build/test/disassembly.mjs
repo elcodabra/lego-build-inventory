@@ -77,6 +77,19 @@ for (const name of ['cat', 'microduck', 'cottage']) {
   ok(`${name}: picture + exploded + ${s.stepUrls.length} reverse steps rendered; show_build BOM identical`);
 }
 assert.equal(JSON.stringify((await client.callTool({ name: 'inventory_show', arguments: {} })).content), invBefore, 'inventory untouched');
+// rebuild loop: ideas from the cat's own 106 parts, build one, the inventory still untouched
+const rb = (await client.callTool({ name: 'ideas_suggest', arguments: { from_model: 'cat', lang: 'en' } })).structuredContent;
+assert.equal(rb.fromModel, 'cat');
+assert.equal(rb.drawableParts, 106);
+assert.match(rb.title, /Cat's 106 parts/);
+assert.ok(rb.ideas.length >= 3, 'ideas from the cat');
+const catBom = new Map(core.bom(core.loadModel('cat')).map((b) => [b.id + '|' + b.color, b.qty]));
+const nb = JSON.parse((await client.callTool({ name: 'idea_build', arguments: { idea: rb.ideas[0].idea, from_model: 'cat' } })).content[0].text);
+assert.equal(nb.ok, true, JSON.stringify(nb));
+const built = core.bom(core.loadModel(path.join(TMP, 'models', rb.ideas[0].idea + '.json')));
+for (const b of built) assert.ok((catBom.get(b.id + '|' + b.color) || 0) >= b.qty, `uses ${b.id} ${b.color} x${b.qty} not in the cat`);
+assert.equal(JSON.stringify((await client.callTool({ name: 'inventory_show', arguments: {} })).content), invBefore, 'inventory untouched after rebuild');
+ok(`rebuild: ${rb.ideas.length} ideas from the cat's 106 parts; ${rb.ideas[0].idea} (${nb.parts} parts) uses only cat parts; inventory untouched`);
 const bad = await client.callTool({ name: 'model_disassemble', arguments: { name: '../../etc/passwd' } });
 assert.ok(bad.isError);
 ok('inventory untouched; path-like names refused');
@@ -93,4 +106,8 @@ const raw = JSON.stringify(evs);
 assert.ok(!/https?:\/\//.test(raw), 'no media URLs in analytics');
 assert.match(evs[1].user_id, /^a[0-9a-f]{24}$/);
 ok('disassembly_opened + exploded_view_rendered, no URLs, user_id format kept');
+const rbe = an.events({ userId: 'a0123456789abcdef01234567', msgs: [{ method: 'tools/call', params: { name: 'idea_build', arguments: { idea: 'spaceship', from_model: 'cat' } } }], client: 'chatgpt', status: 200, ms: 300, payload: '{}' });
+assert.deepEqual(rbe.map((e) => e.event_type), ['tool_call', 'rebuild_model_built']);
+assert.deepEqual(rbe[1].event_properties, { client: 'chatgpt', from_model: 'cat', idea: 'spaceship' });
+ok('rebuild_model_built event (from_model, idea)');
 console.log('all good, pictures in ' + path.join(os.tmpdir(), 'lego-dis-last'));
