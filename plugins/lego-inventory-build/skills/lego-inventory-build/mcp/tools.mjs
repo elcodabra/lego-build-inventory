@@ -671,6 +671,8 @@ export function buildServer(opts) {
       r = await an.analyze({ src, hint, budget: budget(opts && opts.metaBudgetStore) });
     } catch (e) {
       const code = e.code || 'META_UNAVAILABLE';
+      // server log only: code, HTTP status, short reason; never the photo, prompt or key
+      console.log(JSON.stringify({ ev: 'meta_error', code, status: e.status, configured: !!process.env.MODEL_API_KEY, reason: String(e.message || '').slice(0, 80), model: e.model, tried: e.tried }));
       if (opts && opts.onMeta) opts.onMeta({ ok: false, code, model: e.model, costUsd: e.costUsd });
       const data = { kind: 'analysis', status: 'unavailable', error: code, candidates: [], known: an.candidates().map((c) => ({ name: c.name, title: c.title, parts: c.parts })) };
       return {

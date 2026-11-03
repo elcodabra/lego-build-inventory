@@ -10,9 +10,16 @@ const photo = require('./photo.cjs');
 const MAX_SIDE = 1024; // the photo is downscaled before upload: fewer input tokens, smaller payload
 const MAX_CANDIDATES = 12;
 
-// Known models the user can pick from: built-ins + their saved models (names are safe ids).
+// Known models the user can pick from: the built-in examples always, then the user's saved models,
+// newest first, up to MAX_CANDIDATES (names are safe ids).
 function candidates() {
-  return core.listModels().slice(0, MAX_CANDIDATES).map((x) => {
+  const fs = require('fs');
+  const builtinDir = require('path').join(core.ROOT, 'src/models');
+  const all = core.listModels();
+  const builtin = all.filter((x) => x.file.startsWith(builtinDir));
+  const mtime = (f) => { try { return fs.statSync(f).mtimeMs; } catch { return 0; } };
+  const user = all.filter((x) => !x.file.startsWith(builtinDir)).sort((a, b) => mtime(b.file) - mtime(a.file));
+  return [...builtin, ...user].slice(0, MAX_CANDIDATES).map((x) => {
     let m;
     try { m = core.loadModel(x.name); } catch { return null; }
     const colours = {};

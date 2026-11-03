@@ -1,6 +1,6 @@
 node_modules
-exports
+/exports
 test
-models
+/models
 *.mp4
 media

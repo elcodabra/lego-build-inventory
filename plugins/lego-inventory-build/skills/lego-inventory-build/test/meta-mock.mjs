@@ -90,6 +90,14 @@ const many = await run('many');
 assert.equal(many.analysis.visible_colours.length, 16);
 assert.equal(many.analysis.uncertainties.length, 6);
 ok('long lists (a colourful pile) are truncated, not rejected');
+const md = path.join(process.env.LEGO_DATA_DIR, 'models');
+fs.mkdirSync(md, { recursive: true });
+for (let i = 0; i < 20; i++) fs.writeFileSync(path.join(md, `user${i}.json`), JSON.stringify({ title: 'U' + i, steps: [[{ id: '3001', color: 'red', at: [0, 0, 0] }]] }));
+const names = an.candidates().map((c) => c.name);
+assert.ok(names.includes('cat') && names.includes('microduck'), 'built-ins dropped: ' + names.join(','));
+assert.equal(names.length, 12);
+for (let i = 0; i < 20; i++) fs.rmSync(path.join(md, `user${i}.json`));
+ok('with 20 saved models the built-in cat/microduck stay in the candidate list (cap 12)');
 
 console.log('errors');
 await fails('429', 'QUOTA_EXCEEDED');

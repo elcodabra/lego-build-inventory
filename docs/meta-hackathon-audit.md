@@ -39,3 +39,17 @@ Files touched: `lib/disassembly.cjs` (new), `lib/meta.cjs` (new), `lib/nodefilm.
   Locally Node needs `--use-system-ca` (otherwise `UNABLE_TO_GET_ISSUER_CERT_LOCALLY`; curl works).
   Reasoning eats most of `max_output_tokens`: raise the limit for the structured photo analysis (Stage C).
 - Vercel `MODEL_API_KEY`: not confirmed yet (`vercel env ls` failed locally with `fetch failed`, same TLS cause).
+
+## Production check (2026-11-03 17:46 CET, deploy lego-lnaekwkvs, alias lego-mcp.vercel.app)
+
+`node --use-system-ca test/remote-demo.mjs "<owner connector URL>"`:
+analysis muse-spark-1.3 16.6 s, response `resp_6aea0ffa45ce89cc728a4512`, top=cat conf=high ->
+model_disassemble picture (106 parts, poster + exploded URLs 200) -> steps (17 reverse steps, URL 200) ->
+show_build (same part count). Logs: 0 `amplitude_error`, 0 `meta_error`, all calls 200.
+Redis budget counter: 3 Meta calls, $0.0219 on prod.
+
+Bugs found on prod and fixed:
+- Vercel `MODEL_API_KEY` was refused by Meta (401): replaced with the key that works locally.
+- `.vercelignore` had `models`, which also dropped `src/models` (built-in cat/microduck) from the
+  bundle: anchored to `/models`, `/exports`.
+- With many saved models the built-ins could fall off the 12-candidate list: built-ins first now.
