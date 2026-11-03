@@ -35,8 +35,8 @@ if (!photos) {
   const nf = require('../lib/nodefilm.cjs');
   const core = require('../lib/core.cjs');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lego-cmp-'));
-  for (const n of ['cat', 'microduck']) fs.writeFileSync(path.join(dir, n + '.png'), await nf.hero(core.loadModel(n), { size: 900, theta: 30 }));
-  photos = ['cat', 'microduck'].map((n) => path.join(dir, n + '.png') + ':' + n).join(',');
+  for (const n of ['cat', 'microduck', 'cottage']) fs.writeFileSync(path.join(dir, n + '.png'), await nf.hero(core.loadModel(n), { size: 900, theta: 30 }));
+  photos = ['cat', 'microduck', 'cottage'].map((n) => path.join(dir, n + '.png') + ':' + n).join(',');
 }
 const cases = photos.split(',').map((p) => { const i = p.lastIndexOf(':'); return i > 1 ? { file: p.slice(0, i), expected: p.slice(i + 1) } : { file: p, expected: null }; });
 

@@ -17,7 +17,7 @@ const ok = (m) => console.log('  ok  ' + m);
 const key = (b) => b.map((x) => `${x.id}|${x.color}|${x.qty}`).sort();
 
 console.log('unit');
-for (const name of ['cat', 'microduck']) {
+for (const name of ['cat', 'microduck', 'cottage']) {
   const m = core.loadModel(name);
   const before = JSON.stringify(m);
   const inv = dis.assertReverseInvariant(m);
@@ -48,7 +48,7 @@ for (const t of ['show_build', 'model_get', 'model_preview', 'model_render', 'pa
 ok('model_disassemble registered, existing tools still there');
 await client.callTool({ name: 'inventory_import', arguments: { data: 'part,color,qty\n3001,red,3' } });
 const invBefore = JSON.stringify((await client.callTool({ name: 'inventory_show', arguments: {} })).content);
-for (const name of ['cat', 'microduck']) {
+for (const name of ['cat', 'microduck', 'cottage']) {
   const m = core.loadModel(name);
   const pic = await client.callTool({ name: 'model_disassemble', arguments: { name } });
   assert.ok(!pic.isError, JSON.stringify(pic.content));

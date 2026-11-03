@@ -79,7 +79,7 @@ const usageOf = (msgs) => {
 // Requests that never read or write the user's parts/models: protocol handshakes and listings, and
 // the reference tools. They skip the state store entirely (no reads, no writes).
 const STATELESS_TOOLS = new Set(['lego_guide', 'lego_catalog', 'lego_photo_guide']);
-const BUILTIN_MODELS = new Set(['cat', 'microduck']);
+const BUILTIN_MODELS = new Set(['cat', 'microduck', 'cottage']);
 function callNeedsState(m) {
   const name = m.params && m.params.name;
   if (STATELESS_TOOLS.has(name)) return false;

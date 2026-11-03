@@ -78,6 +78,9 @@ node --use-system-ca test/remote-demo.mjs "https://lego-mcp.vercel.app/mcp?key=<
 - Model comparison (`test/results/meta-compare-2026-11-03-15-51.json`): 2 renders, spark 1.3/1.2/1.1
   all matched 2/2; avg 9.6 s / 6.8 s / 4.5 s; $0.61 / $0.65 / $0.50 per 100 analyses.
   Too few, synthetic photos: not a claim about accuracy.
+- Second demo model `cottage` (38 parts, 6 steps, house shape): renders of cat, microduck and cottage at
+  a different camera angle, spark 1.3/1.2/1.1 each matched 3/3 (`test/results/meta-compare-2026-11-03-19-02.json`).
+  Prod: cottage render → `cottage` (high), `resp_6aea2fef51291391de5243be` → 38-part disassembly, 6 reverse steps.
 - Live negative case: a photo of a loose pile → no match (`resp_6aea039a6a2f807beb3a403b`).
 
 Still to do before submitting: real photos of the physical models, a comparison on them, the
@@ -94,7 +97,7 @@ About $0.005-0.007 per analysis (real usage from the API). Caps: `META_BUDGET_US
   and a choice among KNOWN models. Unknown builds get no instructions.
 - Disassembly order = build steps reversed. Consistent with the model data, not physically tested.
 - Exploded view is an illustration (layers lifted apart), not an extraction path.
-- Matching is limited to the built-in examples and the user's saved models (12 candidates per call).
+- Matching is limited to the built-in examples (cat, microduck, cottage) and the user's saved models (12 candidates per call).
 - Not built: Duplo, Arduino / Raspberry Pi, SAM 3.1 segmentation, reconstruction of unknown models.
 
 ## Links (fill in)

@@ -412,7 +412,7 @@ export function buildServer(opts) {
 
   s.registerTool('model_list', {
     title: 'List models',
-    description: 'Saved models and built-in examples (cat, microduck).',
+    description: 'Saved models and built-in examples (cat, microduck, cottage).',
     annotations: ro,
   }, safe(async () => text(core.listModels().map((x) => x.name))));
 

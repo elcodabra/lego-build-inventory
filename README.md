@@ -119,7 +119,7 @@ Environment: `AUTH_ISSUER`, `AUTH_RESOURCES`, `AUTH_SIGNING_KEY` (private ES256 
 | `lego_guide`, `lego_catalog` | modelling rules, parts and colours the engine can draw |
 | `model_check` | overlaps, floating parts, parts missing from the inventory plus spare substitutes |
 | `model_bom` | parts list (CSV for a BrickLink wanted list) |
-| `model_save` / `model_list` / `model_get` | saved models and the examples (cat, microduck) |
+| `model_save` / `model_list` / `model_get` | saved models and the examples (cat, microduck, cottage) |
 | `model_preview` | PNG frames straight into the chat (the model can see them and fix things) |
 | `model_render` | mp4 of the build |
 | `model_disassemble` | how to take a saved or built-in model apart, as a card: exact parts list, exploded view and reverse steps (the build steps backwards, straight from the stored JSON). The card switches Build ↔ Disassemble; nothing in the model or the inventory changes. The order is consistent with the model data but not physically tested |
