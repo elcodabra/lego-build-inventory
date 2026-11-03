@@ -49,8 +49,9 @@ function schemaFor(names) {
   };
 }
 
-// Sanitised free text: no control chars, no URLs or paths, bounded length.
-const clean = (n) => z.string().transform((s) => s.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/https?:\/\/\S+/gi, '[link]').replace(/(^|\s)[.~]?\/[\w./-]+/g, ' [path]').replace(/\s+/g, ' ').trim().slice(0, n));
+// Sanitised free text: no control chars, no URLs or paths, bounded length (cut at a word, with an ellipsis).
+const cut = (s, n) => { if (s.length <= n) return s; const t = s.slice(0, n - 1); const sp = t.lastIndexOf(' '); return (sp > n * 0.6 ? t.slice(0, sp) : t).replace(/[\s,;:.–-]+$/, '') + '…'; };
+const clean = (n) => z.string().transform((s) => cut(s.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/https?:\/\/\S+/gi, '[link]').replace(/(^|\s)[.~]?\/[\w./-]+/g, ' [path]').replace(/\s+/g, ' ').trim(), n));
 
 // Lists from the model are truncated to a bound instead of failing the whole answer (a pile can show
 // many colours). The model names stay strict: anything outside the allowlist rejects the answer.
@@ -73,6 +74,7 @@ function prompt(list, hint) {
   return [
     'You look at a photo of a physical object that the user says is built from LEGO bricks.',
     'Describe ONLY what is visible. Do not guess hidden or internal parts; list what you cannot see in "uncertainties".',
+    'Keep "object_summary" to one or two short sentences (under 250 characters).',
     'Colours: plain LEGO colour names (e.g. orange, white, black, light bluish gray). Parts: rough categories and count estimates.',
     'Then compare the photo with these KNOWN models and put in "possible_model_names" at most 3 names that plausibly match, best first.',
     'If none of them matches, return an empty list and match_confidence "none". Never invent a model name.',

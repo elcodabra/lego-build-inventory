@@ -67,7 +67,7 @@ await p.setContent(`<!doctype html><html><head><meta charset="utf-8"><style>
   .u img{display:block;max-width:220px;max-height:180px;border-radius:12px;margin-bottom:8px}
   .a{margin:14px 0}.a .t{margin:6px 0}
   iframe{width:100%;border:0;background:#fff;border-radius:14px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
-  .cap{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:rgba(17,24,39,.92);color:#fff;padding:10px 18px;border-radius:12px;font-size:18px;max-width:960px;text-align:center}
+  .cap{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:rgba(0,0,0,.82);color:#fff;padding:12px 22px;border-radius:10px;font-size:24px;line-height:1.35;font-weight:500;max-width:1100px;text-align:center;text-shadow:0 1px 2px rgba(0,0,0,.6)}
   .cap b{color:#FFD21A}
 </style></head><body><div class="top">LEGO from My Bricks <small>· MCP app on lego-mcp.vercel.app · photo analysis by Meta Muse Spark 1.3</small></div>
 <div class="chat" id="chat"></div><div class="cap" id="cap" hidden></div></body></html>`);
@@ -87,10 +87,22 @@ await p.evaluate(({ html }) => {
 }, { html: res.text.replace('<head>', `<head><meta http-equiv="Content-Security-Policy" content="${csp}">`) });
 
 const wait = (ms) => p.waitForTimeout(ms);
+// sync mark: a full red frame at T0, found later in the recording to align subtitles and sound
+await p.evaluate(() => { const d = document.createElement('div'); d.id = 'sync'; d.style.cssText = 'position:fixed;inset:0;background:#ff0000;z-index:99'; document.body.appendChild(d); });
+await wait(300);
+// timeline for subtitles and sound cues, in seconds from the sync mark
+const T0 = Date.now();
+await p.evaluate(() => document.getElementById('sync').remove());
+const now = () => (Date.now() - T0) / 1000;
+const subs = []; // { start, end, text }
+const cues = []; // { t, kind }
+const cue = (kind) => cues.push({ t: now(), kind, i: cues.length, k: cues.length });
 // reading time ~ 55 ms per character, at least 1.6 s
 const caption = async (html) => {
   await p.evaluate((h) => { const c = document.getElementById('cap'); c.innerHTML = h; c.hidden = false; }, html);
+  const start = now();
   await wait(Math.max(1600, html.replace(/<[^>]+>/g, '').length * 55));
+  subs.push({ start, end: now(), text: html.replace(/<[^>]+>/g, '') });
 };
 const user = (text, img) => p.evaluate(({ text, img }) => {
   const d = document.createElement('div'); d.className = 'u';
@@ -113,40 +125,46 @@ const assistantCard = async (text, result) => {
   return i;
 };
 const frame = (i) => p.frameLocator('iframe').nth(i);
+// every click in the card gets a soft 'land' sound
+const click = async (i, sel) => { cue('land'); await frame(i).locator(sel).first().click(); };
 const showTop = (i) => p.evaluate((n) => { const f = window.frames_[n]; f.parentElement.scrollIntoView({ block: 'start' }); }, i);
 const imgReady = async (i, sel) => frame(i).locator(sel).evaluate((im) => (im.decode ? im.decode() : null), null, { timeout: 5000 }).catch(() => {});
 
 // ---- scene 1: a real photo of an unknown build -> honest no match + how to add a model
 await caption('Take a photo of a LEGO model you <b>already built</b>, and get an exact way to take it apart.');
 await user('What is this model and how do I take it apart?', realUrl);
+cue('step');
 const i1 = await assistantCard('Here is what I can see. It does not match any of your models, so I will not make up instructions.', { structuredContent: r1 });
+cue('intro');
 await showTop(i1);
 await caption(`A <b>real iPhone photo</b>, analysed live by <b>Meta Muse Spark 1.3</b> (${(r1.provider.ms / 1000).toFixed(1)} s).`);
 await caption('Unknown build: <b>no match</b>, so no made-up steps. The card explains how to add a model.');
 
 // ---- scene 2: a known model -> confirm -> exact data
 await user('And this one?', catUrl);
+cue('step');
 const i2 = await assistantCard('This looks like one of your models. Please confirm.', { structuredContent: r2 });
+cue('intro');
 await showTop(i2);
 await caption(`A <b>render</b> of the built-in cat (no physical one built yet). AI estimate: <b>${r2.candidates[0] ? r2.candidates[0].title : 'none'}</b>, ${r2.analysis.match_confidence} confidence.`);
 await caption('The AI only suggests. <b>You</b> confirm the match.');
-await frame(i2).locator('button[data-confirm]').first().click();
+await click(i2, 'button[data-confirm]');
 await frame(i2).locator('.tag', { hasText: 'Based on exact model JSON' }).waitFor({ timeout: 60000 });
 await imgReady(i2, '.stage img');
 await showTop(i2);
 await caption('<b>Exact</b> parts list and geometry from the saved model: 106 parts, 17 steps.');
 
 // ---- scene 3: exploded, reverse steps, build again
-await frame(i2).locator('#explode').click();
+await click(i2, '#explode');
 await imgReady(i2, '.stage img');
 await caption('Exploded view: the build steps pulled apart. An illustration, not a tested removal path.');
-await frame(i2).locator('button[data-dmode=steps]').click();
+await click(i2, 'button[data-dmode=steps]');
 await frame(i2).locator('#next').waitFor({ timeout: 60000 });
 await imgReady(i2, '#stepimg');
 await showTop(i2);
 await caption('Disassembly steps: each one outlines the parts to remove next.');
-for (let k = 0; k < 4; k++) { await frame(i2).locator('#next').click(); await imgReady(i2, '#stepimg'); await wait(650); }
-await frame(i2).locator('button[data-dir=build]').click();
+for (let k = 0; k < 4; k++) { await click(i2, '#next'); await imgReady(i2, '#stepimg'); await wait(650); }
+await click(i2, 'button[data-dir=build]');
 await frame(i2).locator('button[data-dir=build][aria-pressed=true]').waitFor({ timeout: 60000 });
 await imgReady(i2, '#stepimg');
 await caption('One switch back to <b>Build</b>: the same parts in build order. Your model and parts list never change.');
@@ -155,7 +173,9 @@ await caption('One switch back to <b>Build</b>: the same parts in build order. Y
 await p.evaluate((n) => window.frames_[n].parentElement.scrollIntoView({ block: 'start' }), i1);
 await frame(i1).locator('.add').evaluate((el) => { el.style.outline = '3px solid #FFD21A'; el.style.outlineOffset = '3px'; });
 await caption('<b>Add more models:</b> photograph your loose bricks to get build ideas, or describe a model. Every saved model can then be recognised and taken apart.');
+cue('done');
 await caption('Real Meta API · you confirm the match · exact data · honest limits. <b>LEGO from My Bricks</b>');
+const total = now();
 
 const vid = p.video();
 await ctx.close();
@@ -163,6 +183,36 @@ await b.close();
 await c.close();
 const webm = await vid.path();
 const ff = require('ffmpeg-static');
-// pauses are already tight (captions get reading time only), so a plain re-encode
-execFileSync(ff, ['-y', '-i', webm, '-r', '25', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '22', '-movflags', '+faststart', OUT], { stdio: 'ignore' });
-console.log(JSON.stringify({ out: OUT, bytes: fs.statSync(OUT).size }));
+// find the end of the red sync frame: everything before it is cut, so t=0 of the mp4 is T0
+const redEnd = (() => {
+  const raw = execFileSync(ff, ['-i', webm, '-t', '20', '-vf', 'scale=8:8,format=rgb24', '-f', 'rawvideo', '-r', '50', 'pipe:1'], { maxBuffer: 64 << 20, stdio: ['ignore', 'pipe', 'ignore'] });
+  const n = Math.floor(raw.length / 192);
+  let seen = false;
+  for (let i = 0; i < n; i++) {
+    const r = raw[i * 192 + 96]; const g = raw[i * 192 + 97]; const bl = raw[i * 192 + 98];
+    const red = r > 200 && g < 60 && bl < 60;
+    if (red) seen = true; else if (seen) return i / 50;
+  }
+  return null;
+})();
+if (redEnd == null) throw new Error('sync frame not found in the recording');
+const vlen = total;
+const shift = 0;
+// subtitles (.srt next to the mp4, and burned in so they show on every player)
+const ts = (s) => { const ms = Math.round(s * 1000); const h = Math.floor(ms / 3600000); const m = Math.floor(ms / 60000) % 60; const ss = Math.floor(ms / 1000) % 60; return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(ss).padStart(2, '0')},${String(ms % 1000).padStart(3, '0')}`; };
+const srt = subs.map((s, i) => `${i + 1}\n${ts(s.start + shift)} --> ${ts(s.end + shift)}\n${s.text}\n`).join('\n');
+const srtFile = OUT.replace(/\.mp4$/, '.srt');
+fs.writeFileSync(srtFile, srt);
+// music: our own synthesized marimba track (lib/sound.cjs, no samples, nothing to claim), with a
+// soft click on every card click, chimes when a card appears and a final chord
+const sound = require('../lib/sound.cjs');
+const wavFile = path.join(TMP, 'music.wav');
+fs.writeFileSync(wavFile, sound.wav(sound.synth(vlen, cues.map((x) => ({ ...x, t: x.t + shift })), { title: 'LEGO from My Bricks demo', step: 1.7 })));
+// Subtitles: the caption bar is drawn in the page (visible everywhere); the same lines also go in as
+// a soft English track and a .srt (YouTube upload, translation). BURN=1 additionally burns the .srt.
+const args = ['-y', '-ss', redEnd.toFixed(3), '-i', webm, '-i', wavFile];
+if (process.env.BURN === '1') args.push('-vf', `subtitles=${srtFile.replace(/:/g, '\\:')}:force_style='FontSize=20,MarginV=40'`);
+args.push('-i', srtFile, '-map', '0:v', '-map', '1:a', '-map', '2:s', '-c:s', 'mov_text', '-metadata:s:s:0', 'language=eng',
+  '-r', '25', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '22', '-c:a', 'aac', '-b:a', '128k', '-t', vlen.toFixed(2), '-movflags', '+faststart', OUT);
+execFileSync(ff, args, { stdio: 'ignore' });
+console.log(JSON.stringify({ out: OUT, srt: srtFile, bytes: fs.statSync(OUT).size, seconds: Math.round(vlen), sync_at: redEnd, subtitles: subs.length, sound_cues: cues.length }));
