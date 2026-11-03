@@ -106,7 +106,7 @@ analytics, hosting. New in the hackathon (branch `feat/meta-hackathon-reverse-bu
 - Live MCP server: https://lego-mcp.vercel.app/mcp (connect in ChatGPT / Claude)
 - Code: https://github.com/elcodabra/lego-build-inventory, branch `feat/meta-hackathon-reverse-build`
   (pushed)
-- Video: `promo/hackathon/demo-en.mp4` (0:42) → upload unlisted (YouTube or Loom), paste the URL here
+- Video (0:43, unlisted on YouTube): https://youtu.be/D9MULCBiJT8
 - Diff vs pre-hackathon: `https://github.com/elcodabra/lego-build-inventory/compare/pre-hackathon...feat/meta-hackathon-reverse-build`
   (live)
 
