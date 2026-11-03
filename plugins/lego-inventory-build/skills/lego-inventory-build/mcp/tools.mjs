@@ -351,11 +351,19 @@ export function buildServer(opts) {
         return await fileUrl(f);
       } catch { return null; }
     }));
+    const almostList = s.almost.slice(0, 2);
+    const wantedUrls = await Promise.all(almostList.map(async (a) => {
+      try {
+        const f = path.join(exportsDir(), `wanted-${a.idea}-${require('node:crypto').createHash('sha1').update(JSON.stringify(a.missing)).digest('hex').slice(0, 10)}.xml`);
+        fs.writeFileSync(f, require('../lib/shopping.cjs').wantedListXml(a.missing || []));
+        return await fileUrl(f);
+      } catch { return null; }
+    }));
     const data = {
       kind: 'ideas', name: 'ideas', ...(EN ? { lang: 'en' } : {}), ...(fromM ? { fromModel: from_model } : {}),
       title: fromM ? (EN ? `What else to build from the ${ideas.titleEn(fromM.title)}'s ${fromM.steps.flat().length} parts` : `Что ещё собрать из деталей «${fromM.title}»`) : (EN ? 'What to build from your bricks' : 'Что собрать из твоих деталей'), drawableParts: s.drawableParts,
       ideas: list.map((b, i) => ({ idea: b.idea, title: EN ? ideas.titleEn(b.title) : b.title, about: b.about, parts: b.parts, steps: b.steps, usesPercent: b.usesPercent, thumbUrl: thumbs[i] || null })),
-      almost: s.almost.slice(0, 2).map((a) => ({ idea: a.idea, title: EN ? ideas.titleEn(a.title) : a.title, missing: (a.missing || []).slice(0, 4).map((m) => ({ name: EN ? require('../lib/i18n.cjs').partEn(m.name || m.id) : (m.name || m.id), color: EN ? (colorInfo(m.color).name || m.color) : colorInfo(m.color).ru, qty: m.qty })) })),
+      almost: almostList.map((a, i) => ({ idea: a.idea, title: EN ? ideas.titleEn(a.title) : a.title, missingTotal: (a.missing || []).reduce((n, m) => n + m.qty, 0), wantedUrl: wantedUrls[i] || null, missing: (a.missing || []).slice(0, 4).map((m) => ({ name: EN ? require('../lib/i18n.cjs').partEn(m.name || m.id) : (m.name || m.id), color: EN ? (colorInfo(m.color).name || m.color) : colorInfo(m.color).ru, qty: m.qty })) })),
     };
     return {
       structuredContent: data,
@@ -691,7 +699,8 @@ export function buildServer(opts) {
       'Pass the uploaded file. Meta Muse Spark describes the visible colours and parts (an estimate) and suggests up to 3 possible matches among the saved and built-in models. ' +
       'Show the card and ASK the user to confirm the match; call model_disassemble only for the model the user confirmed. Never present the estimate as exact parts. Takes 5-20 s.',
     inputSchema: {
-      files: z.array(FileObj).max(1).optional().describe('the uploaded photo (ChatGPT)'),
+      files: z.array(FileObj).max(3).optional().describe('the uploaded photo(s) (ChatGPT): up to 3 angles of the SAME model'),
+      images: z.array(z.string()).max(3).optional().describe('or up to 3 angles of the same model as https/data URLs'),
       image: z.string().optional().describe('or the photo as an https URL, data: URL or base64'),
       hint: z.string().max(120).optional().describe('what the user says it is, e.g. "a cat"'),
       lang: z.enum(['ru', 'en']).optional().describe('card language, "en" when the user writes in English'),
@@ -699,10 +708,11 @@ export function buildServer(opts) {
     },
     annotations: hints(true, false, false, true),
     _meta: { ...cardMeta, 'openai/fileParams': ['files'] },
-  }, safe(async ({ files, image, hint, lang, segment }) => {
+  }, safe(async ({ files, image, images, hint, lang, segment }) => {
     const L = lang === 'en' ? 'en' : 'ru';
     const tEn = (t) => (L === 'en' ? require('../lib/ideas.cjs').titleEn(t) : t);
-    const src = (files && files[0] && files[0].download_url) || image;
+    const srcs = [...(files || []).map((f) => f.download_url), ...(images || []), ...(image ? [image] : [])].filter(Boolean).slice(0, 3);
+    const src = srcs[0];
     if (!src) throw new Error('pass "files" (the uploaded photo) or "image"');
     const an = require('../lib/analyze.cjs');
     const { budget } = require('../lib/budget.cjs');
@@ -717,7 +727,8 @@ export function buildServer(opts) {
         console.log(JSON.stringify({ ev: 'sam_error', code: e.code || 'META_UNAVAILABLE', status: e.status }));
         return null;
       });
-      [r, seg] = await Promise.all([an.analyze({ src, hint, budget: b, pic }), segP]);
+      const extra = await Promise.all(srcs.slice(1).map((x) => an.preparePhoto(x)));
+      [r, seg] = await Promise.all([an.analyze({ src, hint, budget: b, pic, extra }), segP]);
     } catch (e) {
       const code = e.code || 'META_UNAVAILABLE';
       // server log only: code, HTTP status, short reason; never the photo, prompt or key
@@ -738,7 +749,7 @@ export function buildServer(opts) {
       fs.writeFileSync(f, seg.overlay);
       segData = { model: seg.model, bricks: seg.bricks, outlined: !!seg.outline, overlayUrl: await fileUrl(f), responseIds: seg.responseIds };
     }
-    const data = { kind: 'analysis', lang: L, status: 'ok', analysis: r.analysis, candidates: r.candidates.map((c) => ({ ...c, title: tEn(c.title) })), provider: { model: r.provider.model, responseId: r.provider.responseId, ms: r.provider.ms }, ...(segData ? { segmentation: segData } : {}) };
+    const data = { kind: 'analysis', lang: L, status: 'ok', photos: srcs.length, analysis: r.analysis, candidates: r.candidates.map((c) => ({ ...c, title: tEn(c.title) })), provider: { model: r.provider.model, responseId: r.provider.responseId, ms: r.provider.ms }, ...(segData ? { segmentation: segData } : {}) };
     const found = r.candidates.length;
     return {
       structuredContent: data,

@@ -61,7 +61,7 @@ async function main() {
     if (url.pathname.startsWith('/files/') && req.method === 'GET') {
       const f = path.join(EXPORTS, path.basename(decodeURIComponent(url.pathname.slice(7))));
       if (!fs.existsSync(f)) return res.writeHead(404).end();
-      res.writeHead(200, { 'content-type': f.endsWith('.mp4') ? 'video/mp4' : 'image/png', 'content-length': fs.statSync(f).size });
+      res.writeHead(200, { 'content-type': f.endsWith('.mp4') ? 'video/mp4' : f.endsWith('.xml') ? 'application/xml' : 'image/png', 'content-length': fs.statSync(f).size });
       return fs.createReadStream(f).pipe(res);
     }
     if (url.pathname !== '/mcp') return res.writeHead(404, { 'content-type': 'text/plain' }).end('MCP endpoint is /mcp');

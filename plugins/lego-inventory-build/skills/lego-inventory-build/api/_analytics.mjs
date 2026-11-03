@@ -58,7 +58,7 @@ function analysisFacts(payload) {
   try {
     const sc = JSON.parse(payload).result.structuredContent;
     if (sc.status === 'ok') {
-      return { ok: true, seg: sc.segmentation ? { provider_model: sc.segmentation.model, bricks: sc.segmentation.bricks, outlined: !!sc.segmentation.outlined } : null, props: { provider_model: sc.provider && sc.provider.model, provider_ms: sc.provider && sc.provider.ms, candidates: (sc.candidates || []).length, top_match: sc.candidates && sc.candidates[0] ? sc.candidates[0].name : undefined, match_confidence: sc.analysis && sc.analysis.match_confidence, is_lego: sc.analysis && sc.analysis.is_lego_model, segmented: !!sc.segmentation } };
+      return { ok: true, seg: sc.segmentation ? { provider_model: sc.segmentation.model, bricks: sc.segmentation.bricks, outlined: !!sc.segmentation.outlined } : null, props: { photos: sc.photos, provider_model: sc.provider && sc.provider.model, provider_ms: sc.provider && sc.provider.ms, candidates: (sc.candidates || []).length, top_match: sc.candidates && sc.candidates[0] ? sc.candidates[0].name : undefined, match_confidence: sc.analysis && sc.analysis.match_confidence, is_lego: sc.analysis && sc.analysis.is_lego_model, segmented: !!sc.segmentation } };
     }
     return { ok: false, props: { error_code: sc.error } };
   } catch {

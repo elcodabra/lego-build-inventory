@@ -8,6 +8,7 @@ const meta = require('./meta.cjs');
 const photo = require('./photo.cjs');
 
 const MAX_SIDE = 1024; // the photo is downscaled before upload: fewer input tokens, smaller payload
+const MAX_PHOTOS = 3; // angles of one model per analysis
 const MAX_CANDIDATES = 12;
 
 // Known models the user can pick from: the built-in examples always, then the user's saved models,
@@ -105,21 +106,26 @@ async function preparePhoto(src) {
  * analyze({ src, hint, model?, effort?, budget }) -> { analysis, candidates, provider }
  * candidates: [{ name, title, parts, steps, rank, label: 'possible match' }], only known names.
  */
-async function analyze({ src, hint, model, effort, budget, fetchImpl, pic: given }) {
+async function analyze({ src, srcs, hint, model, effort, budget, fetchImpl, pic: given, extra }) {
   if (!meta.available()) throw new meta.MetaError('META_UNAVAILABLE', 'Meta Model API is not configured on this server');
   if (model && !meta.PRICES[model]) throw new meta.MetaError('MODEL_NOT_AVAILABLE', 'model not allowed: ' + model);
   const list = candidates();
   const names = list.map((c) => c.name);
-  const pic = given || await preparePhoto(src);
+  const pic = given || await preparePhoto(src || (srcs && srcs[0]));
   meta.checkImage(pic.dataUrl);
+  // more angles of the SAME model (up to 3 photos in one request): one answer for all of them
+  const more = extra || (srcs && srcs.length > 1 ? await Promise.all(srcs.slice(1, MAX_PHOTOS).map(preparePhoto)) : []);
+  for (const x of more) meta.checkImage(x.dataUrl);
+  const photos = [pic, ...more];
   const h = hint ? String(hint).replace(/[\u0000-\u001f]/g, ' ').slice(0, 120) : '';
+  const text = prompt(list, h) + (photos.length > 1 ? `\nThere are ${photos.length} photos: different angles of the SAME model. Combine what they show; list in "uncertainties" only what none of them shows.` : '');
   const call = () => meta.respond({
     model, effort, fetchImpl,
     schema: schemaFor(names), schemaName: 'lego_photo_analysis',
-    input: [{ role: 'user', content: [{ type: 'input_text', text: prompt(list, h) }, { type: 'input_image', image_url: pic.dataUrl }] }],
+    input: [{ role: 'user', content: [{ type: 'input_text', text }, ...photos.map((p) => ({ type: 'input_image', image_url: p.dataUrl }))] }],
   });
   const cfg = meta.config();
-  const worst = meta.maxCost(model || cfg.models[0], 2500, cfg.maxOutputTokens);
+  const worst = meta.maxCost(model || cfg.models[0], 2500 * photos.length, cfg.maxOutputTokens);
   const r = budget ? await budget.run(worst, call) : await call();
   const parsed = dtoSchema(names).safeParse(r.json);
   if (!parsed.success) throw Object.assign(new meta.MetaError('INVALID_MODEL_OUTPUT', 'model output failed validation'), { costUsd: r.costUsd, model: r.model });
@@ -132,7 +138,7 @@ async function analyze({ src, hint, model, effort, budget, fetchImpl, pic: given
     analysis: { ...a, possible_model_names: uniq, source: 'meta-' + r.model },
     candidates: cands,
     provider: { model: r.model, responseId: r.id, usage: r.usage, costUsd: r.costUsd, ms: r.ms, attempts: r.attempts, effort: r.effort, tried: r.tried },
-    photo: { width: pic.width, height: pic.height, dataUrl: pic.dataUrl },
+    photo: { width: pic.width, height: pic.height, dataUrl: pic.dataUrl, count: photos.length },
   };
 }
 

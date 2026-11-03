@@ -76,7 +76,7 @@
       buildSteps: 'Шаги картинками', video: '▶ Видео сборки', mp4: 'Скачать mp4', yt: 'На YouTube', mode: 'Режим', retry: ' (ошибка, ещё раз)',
       onPhoto: 'Что на фото', aiOff: 'AI-анализ недоступен', colours: 'Видны цвета', rough: 'Примерно', hidden: 'Не видно',
       confirm: 'Возможное совпадение: подтверди', noMatch: 'Совпадений среди известных моделей нет', angles: 'Попробуй другой ракурс', itIs: 'Это ',
-      addTitle: 'Как добавить модель', addHow: 'Разборка работает для любой сохранённой модели. Сфотографируй кучу деталей, и я предложу идеи, или попроси собрать модель по описанию. После сохранения её можно узнать по фото.', addIdeas: 'Идеи из моих деталей', rebuild: '♲ Собрать другое из этих деталей', buildIt: 'Собрать', building: 'Собираю…', almost: 'Почти', missing: 'не хватает',
+      addTitle: 'Как добавить модель', addHow: 'Разборка работает для любой сохранённой модели. Сфотографируй кучу деталей, и я предложу идеи, или попроси собрать модель по описанию. После сохранения её можно узнать по фото.', addIdeas: 'Идеи из моих деталей', rebuild: '♲ Собрать другое из этих деталей', buildIt: 'Собрать', building: 'Собираю…', almost: 'Почти', missing: 'не хватает', wanted: 'список для BrickLink',
       ideasSub: (n) => `Картинки собраны из твоих ${n} деталей. Первая идея берёт больше всего деталей.`, ideasFromModel: (n) => `Только детали разобранной модели (${n} шт.). Твой список деталей не меняется.`,
       notAnalysed: (e) => `Фото не анализировалось (${e}). Выбери модель сам: точная разборка работает без AI.` },
     en: { drawing: 'Drawing…', step: 'Step', unbuild: 'Disassembly', of: 'of', back: 'Back', fwd: 'Next', parts: 'parts', steps: 'steps', pcs: 'parts',
@@ -84,7 +84,7 @@
       buildSteps: 'Build steps', video: '▶ Build video', mp4: 'Download mp4', yt: 'On YouTube', mode: 'Mode', retry: ' (error, try again)',
       onPhoto: 'What is in the photo', aiOff: 'AI analysis unavailable', colours: 'Visible colours', rough: 'Roughly', hidden: 'Not visible',
       confirm: 'Possible match: please confirm', noMatch: 'No match among your known models', angles: 'Try another angle', itIs: 'It is ',
-      addTitle: 'How to add a model', addHow: 'Disassembly works for any saved model. Snap a photo of your loose bricks and I will suggest builds, or ask me to design one from a description. Once saved, it can be recognised from a photo.', addIdeas: 'Ideas from my bricks', rebuild: '♲ Build something else from these parts', buildIt: 'Build', building: 'Building…', almost: 'Almost', missing: 'missing',
+      addTitle: 'How to add a model', addHow: 'Disassembly works for any saved model. Snap a photo of your loose bricks and I will suggest builds, or ask me to design one from a description. Once saved, it can be recognised from a photo.', addIdeas: 'Ideas from my bricks', rebuild: '♲ Build something else from these parts', buildIt: 'Build', building: 'Building…', almost: 'Almost', missing: 'missing', wanted: 'BrickLink wanted list',
       ideasSub: (n) => `Pictures made from your ${n} parts. The first idea uses the most parts.`, ideasFromModel: (n) => `Only the parts of the model you took apart (${n}). Your parts list does not change.`,
       notAnalysed: (e) => `The photo was not analysed (${e}). Pick the model yourself: the exact disassembly works without AI.` },
   };
@@ -160,7 +160,7 @@
             <button class="act ${i === 0 ? 'primary' : ''}" data-idea="${esc(it.idea)}">${t('buildIt')}</button>
           </div>
         </div>`).join('')}
-      ${(d.almost || []).map((a) => `<div class="almost">${t('almost')}: <b>${esc(a.title)}</b>, ${t('missing')} ${(a.missing || []).map((m) => `${esc(m.name)} ${esc(String(m.color || '').toLowerCase())} ×${num(m.qty)}`).join(', ')}</div>`).join('')}`;
+      ${(d.almost || []).map((a) => `<div class="almost">${t('almost')}: <b>${esc(a.title)}</b>, ${t('missing')} ${(a.missing || []).map((m) => `${esc(m.name)} ${esc(String(m.color || '').toLowerCase())} ×${num(m.qty)}`).join(', ')}${url(a.wantedUrl) ? ` · <a href="${url(a.wantedUrl)}" target="_blank" rel="noopener" download>${t('wanted')}</a>` : ''}</div>`).join('')}`;
     app.querySelectorAll('button[data-idea]').forEach((b) => { b.onclick = () => buildIdea(b.dataset.idea, b); });
     sizeChanged();
   }

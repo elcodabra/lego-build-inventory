@@ -176,6 +176,25 @@ assert.equal(aE.structuredContent.segmentation.bricks, 0);
 assert.equal(aE.structuredContent.segmentation.outlined, false);
 samMode = 'ok';
 ok('SAM down: analysis still ok without overlay; SAM empty: zero matches is a normal result');
+// several angles of one model: ONE Muse request with all photos, SAM on the first only
+seen = [];
+const multi = await client.callTool({ name: 'model_analyze_photo', arguments: { images: [photoUrl, photoUrl, photoUrl], lang: 'en' } });
+assert.equal(multi.structuredContent.photos, 3);
+const museReqs = seen.filter((x) => x.body.model !== 'sam-3.1');
+assert.equal(museReqs.length, 1);
+assert.equal(museReqs[0].body.input[0].content.filter((c) => c.type === 'input_image').length, 3);
+assert.match(museReqs[0].body.input[0].content[0].text, /3 photos: different angles of the SAME model/);
+assert.equal(seen.filter((x) => x.body.model === 'sam-3.1').length, 2);
+const four = await client.callTool({ name: 'model_analyze_photo', arguments: { images: [photoUrl, photoUrl, photoUrl, photoUrl] } });
+assert.ok(four.isError && /at most 3/.test(four.content[0].text));
+ok('3 angles -> one Muse request with 3 images, SAM on the first only; 4 photos refused');
+// shopping list: a BrickLink wanted-list XML for an idea that is close
+const sh = require('../lib/shopping.cjs');
+const xml = sh.wantedListXml([{ id: '3001', color: 'red', qty: 2 }, { id: '3039', color: 'white', qty: 1 }, { id: 'x<y', color: 'nope', qty: 0 }]);
+assert.match(xml, /<ITEMID>3001<\/ITEMID>\s*<COLOR>5<\/COLOR>\s*<MINQTY>2<\/MINQTY>/);
+assert.match(xml, /<ITEMID>3039<\/ITEMID>\s*<COLOR>1<\/COLOR>/);
+assert.ok(!xml.includes('x<y'), 'zero-qty and odd ids not emitted');
+ok('BrickLink wanted-list XML: part, BrickLink colour id, quantity');
 const d = await client.callTool({ name: 'model_disassemble', arguments: { name: a1.structuredContent.candidates[0].name, confirmed: true } });
 assert.equal(d.structuredContent.disassembly.source, 'exact-model-json');
 assert.equal(d.structuredContent.parts, 106);

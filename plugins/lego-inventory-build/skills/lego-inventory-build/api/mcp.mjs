@@ -73,7 +73,14 @@ const isVideo = (m) => m.params && (((m.params.name === 'show_build' || m.params
 const isPhoto = (m) => m.params && /^(parts_from_(pile_)?photo|model_analyze_photo)$/.test(m.params.name);
 const usageOf = (msgs) => {
   const calls = msgs.filter((m) => m && m.method === 'tools/call');
-  return { calls: calls.length, video: calls.filter(isVideo).length, photo: calls.filter(isPhoto).length };
+  // a model analysis with several angles counts every photo (each one is sent to Meta)
+  const photoCount = (m) => {
+    if (!isPhoto(m)) return 0;
+    if (m.params.name !== 'model_analyze_photo') return 1;
+    const a = m.params.arguments || {};
+    return Math.max(1, Math.min(3, (Array.isArray(a.files) ? a.files.length : 0) + (Array.isArray(a.images) ? a.images.length : 0) + (a.image ? 1 : 0)));
+  };
+  return { calls: calls.length, video: calls.filter(isVideo).length, photo: calls.reduce((n, m) => n + photoCount(m), 0) };
 };
 
 // Requests that never read or write the user's parts/models: protocol handshakes and listings, and
@@ -103,7 +110,7 @@ async function publish(file) {
   const ext = path.extname(file);
   mediaStats.uploads++;
   const r = await put(`media/${crypto.randomBytes(12).toString('hex')}-${path.basename(file, ext)}${ext}`, buf, {
-    access: 'public', addRandomSuffix: false, contentType: ext === '.mp4' ? 'video/mp4' : 'image/png', token: MEDIA,
+    access: 'public', addRandomSuffix: false, contentType: ext === '.mp4' ? 'video/mp4' : ext === '.xml' ? 'application/xml' : 'image/png', token: MEDIA,
   });
   await store.rememberMedia(sha, r.url, MEDIA_DAYS).catch(() => {});
   return r.url;
