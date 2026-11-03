@@ -105,10 +105,10 @@ analytics, hosting. New in the hackathon (branch `feat/meta-hackathon-reverse-bu
 
 - Live MCP server: https://lego-mcp.vercel.app/mcp (connect in ChatGPT / Claude)
 - Code: https://github.com/elcodabra/lego-build-inventory, branch `feat/meta-hackathon-reverse-build`
-  (NOT pushed yet: needs owner OK)
+  (pushed)
 - Video: `promo/hackathon/demo-en.mp4` (0:42) → upload unlisted (YouTube or Loom), paste the URL here
 - Diff vs pre-hackathon: `https://github.com/elcodabra/lego-build-inventory/compare/pre-hackathon...feat/meta-hackathon-reverse-build`
-  (tag already on GitHub; works once the branch is pushed)
+  (live)
 
 ## Checklist before pressing Submit (owner)
 
@@ -119,7 +119,7 @@ analytics, hosting. New in the hackathon (branch `feat/meta-hackathon-reverse-bu
       family, not government-affiliated.
 - [ ] Trademark: "LEGO" is a trademark of the LEGO Group. The product name already uses it and the
       video description should say "Not affiliated with, sponsored or endorsed by the LEGO Group".
-- [ ] Push the branch (repo is already public, tag `pre-hackathon` already pushed).
+- [x] Branch pushed; repo public; tag `pre-hackathon` on GitHub.
 - [ ] Upload the video (unlisted), paste link.
 - [ ] Optional: one live run in ChatGPT/Claude UI and a screenshot.
 - [ ] Submit before Nov 5, 03:00 CET.
