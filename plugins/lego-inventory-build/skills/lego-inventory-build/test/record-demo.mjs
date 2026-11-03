@@ -91,6 +91,13 @@ const wait = (ms) => p.waitForTimeout(ms);
 await p.evaluate(() => { const d = document.createElement('div'); d.id = 'sync'; d.style.cssText = 'position:fixed;inset:0;background:#ff0000;z-index:99'; document.body.appendChild(d); });
 await wait(300);
 // timeline for subtitles and sound cues, in seconds from the sync mark
+await p.evaluate(({ text, img }) => {
+  const d = document.createElement('div'); d.className = 'u';
+  d.innerHTML = `<div class="b"><img src="${img}">${text}</div>`;
+  document.getElementById('chat').appendChild(d);
+}, { text: 'What is this model and how do I take it apart?', img: realUrl });
+await p.evaluate(() => Promise.all([...document.images].map((i) => i.decode().catch(() => {}))));
+await p.evaluate(() => { const c = document.getElementById('cap'); c.innerHTML = 'Photo of a LEGO model you <b>already built</b> → exact way to take it apart.'; c.hidden = false; });
 const T0 = Date.now();
 await p.evaluate(() => document.getElementById('sync').remove());
 const now = () => (Date.now() - T0) / 1000;
@@ -131,8 +138,10 @@ const showTop = (i) => p.evaluate((n) => { const f = window.frames_[n]; f.parent
 const imgReady = async (i, sel) => frame(i).locator(sel).evaluate((im) => (im.decode ? im.decode() : null), null, { timeout: 5000 }).catch(() => {});
 
 // ---- scene 1: a real photo of an unknown build -> honest no match + how to add a model
-await caption('Photo of a LEGO model you <b>already built</b> → exact way to take it apart.');
-await user('What is this model and how do I take it apart?', realUrl);
+// the first frame already shows the user's photo message and the intro caption (set before T0)
+const intro = 'Photo of a LEGO model you <b>already built</b> → exact way to take it apart.';
+await wait(1500);
+subs.push({ start: 0, end: now(), text: intro.replace(/<[^>]+>/g, '') });
 cue('step');
 const i1 = await assistantCard('Here is what I can see. It does not match any of your models, so I will not make up instructions.', { structuredContent: r1 });
 cue('intro');
