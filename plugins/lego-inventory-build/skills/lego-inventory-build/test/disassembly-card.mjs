@@ -107,7 +107,34 @@ const un = await card(390, { structuredContent: { kind: 'analysis', status: 'una
 assert.equal(await un.f.locator('button[data-confirm]').count(), 2);
 assert.match(await un.f.locator('h2').textContent(), /недоступен/);
 ok('Meta unavailable: card offers known models to pick by hand');
+// no match: the card explains how to add a model, the button opens ideas (a real tool call)
+await c.callTool({ name: 'inventory_import', arguments: { data: 'part,color,qty\n3001,red,12\n3003,white,10\n3004,white,12\n3039,red,8\n3034,green,4\n3010,white,8\n3622,white,8\n3008,white,4', replace: true } });
+const nm = await card(760, { structuredContent: { kind: 'analysis', lang: 'en', status: 'ok', provider: { model: 'muse-spark-1.3' },
+  analysis: { is_lego_model: true, object_summary: 'a dragon', visible_colours: ['black'], visible_parts: [], possible_model_names: [], match_confidence: 'none', uncertainties: [], suggested_views: ['side view'] }, candidates: [] } });
+assert.match(await nm.f.locator('.add').innerText(), /How to add a model/);
+await nm.f.locator('button[data-add]').click();
+await nm.f.locator('.ideas').waitFor({ timeout: 30000 });
+assert.deepEqual(nm.calls, ['ideas_suggest:']);
+ok('no match: "How to add a model" block, its button calls ideas_suggest');
+await nm.p.close();
 await A.p.close(); await un.p.close();
+
+// 1c) English: lang "en" makes the whole card English and keeps it English through the clicks
+const en = await c.callTool({ name: 'model_disassemble', arguments: { name: 'cottage', lang: 'en' } });
+assert.equal(en.structuredContent.title, 'House');
+const E = await card(760, en);
+const enText = async () => E.f.locator('body').innerText();
+assert.ok(!/[А-Яа-яЁё]/.test(await enText()), 'Cyrillic in the English card: ' + (await enText()).match(/[А-Яа-яЁё][^\n]*/));
+await E.f.locator('button[data-dmode=steps]').click();
+await E.f.locator('#next').waitFor({ timeout: 60000 });
+assert.match(await E.f.locator('.nav span').textContent(), /Disassembly 1 of 6/);
+await E.f.locator('button[data-dir=build]').click();
+await E.f.locator('button[data-dir=build][aria-pressed=true]').waitFor({ timeout: 60000 });
+assert.ok(!/[А-Яа-яЁё]/.test(await enText()), 'Cyrillic after switching to Build');
+assert.match(await E.f.locator('.nav span').textContent(), /Step 1 of 6/);
+await E.p.screenshot({ path: path.join(OUT, '6-english.png') });
+ok('lang en: no Cyrillic in the card, stays English through Disassemble steps and Build');
+await E.p.close();
 
 // 2) mobile width: nothing overflows horizontally, toggle reachable
 const mob = await c.callTool({ name: 'model_disassemble', arguments: { name: 'microduck' } });
