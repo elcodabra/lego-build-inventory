@@ -134,6 +134,15 @@ assert.ok(!/[А-Яа-яЁё]/.test(await enText()), 'Cyrillic after switching to
 assert.match(await E.f.locator('.nav span').textContent(), /Step 1 of 6/);
 await E.p.screenshot({ path: path.join(OUT, '6-english.png') });
 ok('lang en: no Cyrillic in the card, stays English through Disassemble steps and Build');
+// disassembly video: the reversed build film plays in the card (mp4 served like other media)
+await E.f.locator('button[data-dir=disassemble]').click();
+await E.f.locator('button[data-dmode=video]').waitFor({ timeout: 60000 });
+await E.f.locator('button[data-dmode=video]').click();
+await E.f.locator('video').waitFor({ timeout: 120000 });
+const vsrc = await E.f.locator('video').getAttribute('src');
+assert.match(vsrc, /-unbuild-16x9\.mp4$/);
+assert.ok(fs.statSync(path.join(DATA, 'exports', decodeURIComponent(vsrc.split('/').pop()))).size > 50000);
+ok('disassembly video: reversed build film shown in the card');
 await E.p.close();
 
 // 2) mobile width: nothing overflows horizontally, toggle reachable

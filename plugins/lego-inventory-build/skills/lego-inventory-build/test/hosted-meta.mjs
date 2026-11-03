@@ -15,14 +15,19 @@ const amp = http.createServer((req, res) => {
   req.on('end', () => { sent.push(JSON.parse(b)); res.end('{"code":200}'); });
 }).listen(18781);
 let metaCalls = 0;
+let samCalls = 0;
 const GOOD = { is_lego_model: true, object_summary: 'secret-summary orange cat', visible_colours: ['orange'], visible_parts: [{ category: 'brick', count_estimate: 20, confidence: 'medium' }], possible_model_names: ['cat'], match_confidence: 'high', uncertainties: [], suggested_views: [] };
 const metaSrv = http.createServer((req, res) => {
   let b = '';
   req.on('data', (c) => { b += c; });
   req.on('end', () => {
-    metaCalls++;
     const body = JSON.parse(b);
     res.setHeader('content-type', 'application/json');
+    if (body.model === 'sam-3.1') {
+      samCalls++;
+      return res.end(JSON.stringify({ id: 'resp_sam_secret', model: 'sam-3.1', status: 'completed', output: [{ content: [{ type: 'output_text', text: fs.readFileSync('test/fixtures/sam-cat-render.txt', 'utf8') }] }], usage: { images_processed: 1 } }));
+    }
+    metaCalls++;
     res.end(JSON.stringify({ id: 'resp_secret', model: body.model, status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify(GOOD) }] }], usage: { input_tokens: 800, output_tokens: 900 } }));
   });
 }).listen(18782);
@@ -63,12 +68,15 @@ assert.equal(d.structuredContent.stepUrls.length, 17); ok('confirmed -> exact di
 await a.callTool({ name: 'model_analyze_photo', arguments: { image: photo } });
 const over = await a.callTool({ name: 'model_analyze_photo', arguments: { image: photo } });
 assert.ok(over.isError && /daily limit.*photos/.test(over.content[0].text), JSON.stringify(over.content));
-assert.equal(metaCalls, 2, 'quota stops the call before Meta is reached'); ok('photo quota (2/day) blocks the 3rd analysis before any Meta request');
+assert.equal(metaCalls, 2, 'quota stops the call before Meta is reached');
+assert.equal(samCalls, 4, 'SAM: 2 requests (outline + bricks) per allowed analysis, none for the blocked one');
+assert.equal(r1.structuredContent.segmentation.model, 'sam-3.1');
+ok('photo quota (2/day) blocks the 3rd analysis before any Meta request (Muse or SAM); SAM overlay on the hosted path');
 
 await new Promise((r) => setTimeout(r, 400));
 const evts = sent.flatMap((p) => p.events);
 const types = evts.map((e) => e.event_type);
-for (const t of ['photo_model_analyzed', 'model_match_confirmed', 'disassembly_opened', 'exploded_view_rendered']) assert.ok(types.includes(t), 'missing ' + t);
+for (const t of ['photo_model_analyzed', 'photo_segmented', 'model_match_confirmed', 'disassembly_opened', 'exploded_view_rendered']) assert.ok(types.includes(t), 'missing ' + t);
 assert.ok(!types.includes('meta_request_failed'), 'a quota hit is not a Meta failure');
 const pa = evts.find((e) => e.event_type === 'photo_model_analyzed');
 assert.equal(pa.event_properties.provider_model, 'muse-spark-1.3');
@@ -76,7 +84,7 @@ assert.equal(pa.event_properties.top_match, 'cat');
 const userIds = new Set(evts.filter((e) => ['photo_model_analyzed', 'model_match_confirmed', 'disassembly_opened'].includes(e.event_type)).map((e) => e.user_id));
 assert.equal(userIds.size, 1); ok('events: ' + [...new Set(types)].join(', ') + '; one user id across the funnel');
 const raw = JSON.stringify(sent);
-for (const bad of [keyA, 'meta-key-not-real', 'secret-hint', 'secret-summary', 'resp_secret', 'base64', 'iVBOR']) assert.ok(!raw.includes(bad), 'leaked ' + bad);
+for (const bad of [keyA, 'meta-key-not-real', 'secret-hint', 'secret-summary', 'resp_secret', 'resp_sam_secret', 'base64', 'iVBOR', '.png']) assert.ok(!raw.includes(bad), 'leaked ' + bad);
 ok('no key, Meta key, hint, AI text, response id or photo bytes in analytics');
 
 await a.close();

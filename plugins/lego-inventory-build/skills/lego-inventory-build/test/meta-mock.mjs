@@ -28,6 +28,7 @@ const { budget, fileStore } = require('../lib/budget.cjs');
 
 // ---- mock server: behaviour picked per test via `mode`
 let mode = 'ok';
+let samMode = 'ok';
 let seen = [];
 const GOOD = { is_lego_model: true, object_summary: 'small orange cat', visible_colours: ['orange', 'white'], visible_parts: [{ category: 'brick', count_estimate: 20, confidence: 'medium' }], possible_model_names: ['cat'], match_confidence: 'high', uncertainties: ['back side hidden'], suggested_views: ['side'] };
 const reply = (res, code, body) => { res.statusCode = code; res.setHeader('content-type', 'application/json'); res.end(typeof body === 'string' ? body : JSON.stringify(body)); };
@@ -39,6 +40,12 @@ const srv = http.createServer((req, res) => {
     const body = JSON.parse(b);
     seen.push({ auth: req.headers.authorization, path: req.url, body });
     const n = seen.length;
+    // SAM 3.1: outline + bricks from the recorded cat-render fixture (one record, reused)
+    if (body.model === 'sam-3.1') {
+      if (samMode === 'down') return reply(res, 503, { error: 'down' });
+      const line = fs.readFileSync(path.join(ROOT, 'test/fixtures/sam-cat-render.txt'), 'utf8');
+      return reply(res, 200, { id: 'resp_sam', model: 'sam-3.1', status: 'completed', output: [{ content: [{ type: 'output_text', text: samMode === 'empty' ? '' : line }] }], usage: { input_tokens: 0, output_tokens: 0, images_processed: 1 } });
+    }
     if (mode === 'ok') return reply(res, 200, okBody(body.model, GOOD));
     if (mode === 'nomatch') return reply(res, 200, okBody(body.model, { ...GOOD, possible_model_names: [], match_confidence: 'none' }));
     if (mode === 'foreign') return reply(res, 200, okBody(body.model, { ...GOOD, possible_model_names: ['../../etc/passwd'] }));
@@ -153,6 +160,22 @@ assert.equal(a1.structuredContent.kind, 'analysis');
 assert.equal(a1.structuredContent.status, 'ok');
 assert.deepEqual(a1.structuredContent.candidates.map((c) => c.name), ['cat']);
 assert.match(a1.content[0].text, /Спроси пользователя/);
+const sg = a1.structuredContent.segmentation;
+assert.equal(sg.model, 'sam-3.1');
+assert.equal(sg.outlined, true);
+assert.equal(sg.bricks, 1);
+assert.ok(fs.readdirSync(path.join(process.env.LEGO_DATA_DIR, 'exports')).some((f) => /^sam-[0-9a-f]{16}\.png$/.test(f)), 'overlay PNG written');
+ok('model_analyze_photo runs Muse Spark + SAM 3.1: candidates and an overlay (model outlined, bricks boxed)');
+samMode = 'down';
+const aS = await client.callTool({ name: 'model_analyze_photo', arguments: { image: photoUrl } });
+assert.equal(aS.structuredContent.status, 'ok');
+assert.equal(aS.structuredContent.segmentation, undefined);
+samMode = 'empty';
+const aE = await client.callTool({ name: 'model_analyze_photo', arguments: { image: photoUrl } });
+assert.equal(aE.structuredContent.segmentation.bricks, 0);
+assert.equal(aE.structuredContent.segmentation.outlined, false);
+samMode = 'ok';
+ok('SAM down: analysis still ok without overlay; SAM empty: zero matches is a normal result');
 const d = await client.callTool({ name: 'model_disassemble', arguments: { name: a1.structuredContent.candidates[0].name, confirmed: true } });
 assert.equal(d.structuredContent.disassembly.source, 'exact-model-json');
 assert.equal(d.structuredContent.parts, 106);
@@ -172,7 +195,8 @@ console.log('analytics');
 const amp = await import('../api/_analytics.mjs');
 const ev = (tool, args, sc) => amp.events({ userId: 'a0123456789abcdef01234567', msgs: [{ method: 'tools/call', params: { name: tool, arguments: args } }], client: 'claude', status: 200, ms: 900, payload: JSON.stringify({ result: { structuredContent: sc } }) });
 const e1 = ev('model_analyze_photo', { image: photoUrl, hint: 'my secret cat' }, a1.structuredContent);
-assert.deepEqual(e1.map((e) => e.event_type), ['tool_call', 'photo_model_analyzed']);
+assert.deepEqual(e1.map((e) => e.event_type), ['tool_call', 'photo_model_analyzed', 'photo_segmented']);
+assert.deepEqual(e1[2].event_properties, { client: 'claude', provider_model: 'sam-3.1', bricks: 1, outlined: true });
 assert.equal(e1[1].event_properties.provider_model, 'muse-spark-1.3');
 assert.equal(e1[1].event_properties.candidates, 1);
 const e2 = ev('model_analyze_photo', { image: photoUrl }, a2.structuredContent);
@@ -181,7 +205,8 @@ assert.equal(e2[1].event_properties.error_code, 'META_UNAVAILABLE');
 const e3 = ev('model_disassemble', { name: 'cat', confirmed: true }, d.structuredContent);
 assert.ok(e3.some((e) => e.event_type === 'model_match_confirmed'));
 const raw = JSON.stringify([...e1, ...e2, ...e3]);
-for (const bad of ['base64', 'my secret cat', 'small orange cat', 'resp_mock', 'test-key-not-real', 'http']) assert.ok(!raw.includes(bad), 'leaked: ' + bad);
+for (const bad of ['base64', 'my secret cat', 'small orange cat', 'resp_mock', 'resp_sam', 'test-key-not-real', 'http', '.png']) assert.ok(!raw.includes(bad), 'leaked: ' + bad);
+assert.ok(!/sam-[0-9a-f]{16}/.test(raw), 'overlay file name leaked');
 ok('photo_model_analyzed / meta_request_failed / model_match_confirmed; no photo, hint, AI text, response id, key or URLs');
 
 srv.close();

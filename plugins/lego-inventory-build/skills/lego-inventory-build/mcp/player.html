@@ -53,6 +53,7 @@
   .tag { display: inline-block; font-size: 12px; border-radius: 6px; padding: 2px 7px; margin: 0 4px 4px 0; background: #e7f6ec; color: #14532d; }
   .tag.warn { background: #fff4d6; color: #713f12; }
   .add { margin-top: 10px; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 12px; }
+  .seg-img { display: block; max-width: 100%; max-height: 300px; border-radius: 12px; margin: 6px 0 8px; }
   button:focus-visible, a.act:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
 </style>
 </head>
@@ -70,14 +71,14 @@
   let LANG = 'ru';
   const T = {
     ru: { drawing: 'Рисую…', step: 'Шаг', unbuild: 'Разборка', of: 'из', back: 'Назад', fwd: 'Дальше', parts: 'деталей', steps: 'шагов', pcs: 'дет.',
-      notChecked: 'Физическая извлекаемость деталей не проверена', unbuildSteps: 'Шаги разборки', finished: 'Готовая модель', assembled: 'Собранная',
+      notChecked: 'Физическая извлекаемость деталей не проверена', unbuildSteps: 'Шаги разборки', unbuildVideo: '▶ Видео разборки', finished: 'Готовая модель', assembled: 'Собранная',
       buildSteps: 'Шаги картинками', video: '▶ Видео сборки', mp4: 'Скачать mp4', yt: 'На YouTube', mode: 'Режим', retry: ' (ошибка, ещё раз)',
       onPhoto: 'Что на фото', aiOff: 'AI-анализ недоступен', colours: 'Видны цвета', rough: 'Примерно', hidden: 'Не видно',
       confirm: 'Возможное совпадение: подтверди', noMatch: 'Совпадений среди известных моделей нет', angles: 'Попробуй другой ракурс', itIs: 'Это ',
       addTitle: 'Как добавить модель', addHow: 'Разборка работает для любой сохранённой модели. Сфотографируй кучу деталей, и я предложу идеи, или попроси собрать модель по описанию. После сохранения её можно узнать по фото.', addIdeas: 'Идеи из моих деталей',
       notAnalysed: (e) => `Фото не анализировалось (${e}). Выбери модель сам: точная разборка работает без AI.` },
     en: { drawing: 'Drawing…', step: 'Step', unbuild: 'Disassembly', of: 'of', back: 'Back', fwd: 'Next', parts: 'parts', steps: 'steps', pcs: 'parts',
-      notChecked: 'Physical removal not verified', unbuildSteps: 'Disassembly steps', finished: 'Finished model', assembled: 'Assembled',
+      notChecked: 'Physical removal not verified', unbuildSteps: 'Disassembly steps', unbuildVideo: '▶ Disassembly video', finished: 'Finished model', assembled: 'Assembled',
       buildSteps: 'Build steps', video: '▶ Build video', mp4: 'Download mp4', yt: 'On YouTube', mode: 'Mode', retry: ' (error, try again)',
       onPhoto: 'What is in the photo', aiOff: 'AI analysis unavailable', colours: 'Visible colours', rough: 'Roughly', hidden: 'Not visible',
       confirm: 'Possible match: please confirm', noMatch: 'No match among your known models', angles: 'Try another angle', itIs: 'It is ',
@@ -184,6 +185,7 @@
     app.innerHTML = `
       <div class="side" style="flex:1 1 100%">
         <h2>${d.status === 'ok' ? t('onPhoto') : t('aiOff')}</h2>
+        ${d.status === 'ok' && d.segmentation && url(d.segmentation.overlayUrl) ? `<img class="seg-img" src="${url(d.segmentation.overlayUrl)}" alt="SAM 3.1">` : ''}
         ${d.status === 'ok' ? `
           <div><span class="tag warn">AI estimate</span><span class="q">${esc(d.provider && d.provider.model)}</span></div>
           <p>${esc(a.object_summary)}</p>
@@ -228,8 +230,10 @@
           <span>${esc(b.name)} <span class="q">· ${esc(String(b.colorName || b.color || '').toLowerCase())}</span></span>
           <span class="q">×${num(b.qty)}</span>`).join('')}</div>
         <div class="row">${dis ? `
-          ${d.mode !== 'steps' ? `<button class="act primary" data-dmode="steps">${t('unbuildSteps')}</button>` : `<button class="act" data-dmode="picture">${t('finished')}</button>`}
-          ${d.mode !== 'steps' && url(dis.explodedUrl) ? `<button class="act" id="explode" aria-pressed="${exploded}">${exploded ? t('assembled') : 'Exploded'}</button>` : ''}` : `
+          ${d.mode !== 'steps' ? `<button class="act primary" data-dmode="steps">${t('unbuildSteps')}</button>` : ''}
+          ${d.mode !== 'picture' ? `<button class="act" data-dmode="picture">${t('finished')}</button>` : ''}
+          ${d.mode !== 'video' ? `<button class="act" data-dmode="video">${t('unbuildVideo')}</button>` : ''}
+          ${d.mode === 'picture' && url(dis.explodedUrl) ? `<button class="act" id="explode" aria-pressed="${exploded}">${exploded ? t('assembled') : 'Exploded'}</button>` : ''}` : `
           ${d.mode !== 'steps' ? `<button class="act primary" data-mode="steps">${t('buildSteps')}</button>` : ''}
           ${d.mode !== 'video' ? `<button class="act" data-mode="video">${t('video')}</button>` : `<a class="act" href="${url(d.videoUrl)}" target="_blank" rel="noopener">${t('mp4')}</a>`}
           ${d.mode === 'video' && /^https:\/\/(youtu\.be|www\.youtube\.com)\//.test(String(d.youtubeUrl || '')) ? `<a class="act" href="${url(d.youtubeUrl)}" target="_blank" rel="noopener">${t('yt')}</a>` : ''}

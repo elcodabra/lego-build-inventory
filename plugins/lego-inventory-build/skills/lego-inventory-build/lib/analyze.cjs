@@ -105,12 +105,12 @@ async function preparePhoto(src) {
  * analyze({ src, hint, model?, effort?, budget }) -> { analysis, candidates, provider }
  * candidates: [{ name, title, parts, steps, rank, label: 'possible match' }], only known names.
  */
-async function analyze({ src, hint, model, effort, budget, fetchImpl }) {
+async function analyze({ src, hint, model, effort, budget, fetchImpl, pic: given }) {
   if (!meta.available()) throw new meta.MetaError('META_UNAVAILABLE', 'Meta Model API is not configured on this server');
   if (model && !meta.PRICES[model]) throw new meta.MetaError('MODEL_NOT_AVAILABLE', 'model not allowed: ' + model);
   const list = candidates();
   const names = list.map((c) => c.name);
-  const pic = await preparePhoto(src);
+  const pic = given || await preparePhoto(src);
   meta.checkImage(pic.dataUrl);
   const h = hint ? String(hint).replace(/[\u0000-\u001f]/g, ' ').slice(0, 120) : '';
   const call = () => meta.respond({
@@ -132,7 +132,7 @@ async function analyze({ src, hint, model, effort, budget, fetchImpl }) {
     analysis: { ...a, possible_model_names: uniq, source: 'meta-' + r.model },
     candidates: cands,
     provider: { model: r.model, responseId: r.id, usage: r.usage, costUsd: r.costUsd, ms: r.ms, attempts: r.attempts, effort: r.effort, tried: r.tried },
-    photo: { width: pic.width, height: pic.height },
+    photo: { width: pic.width, height: pic.height, dataUrl: pic.dataUrl },
   };
 }
 

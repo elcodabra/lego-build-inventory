@@ -58,7 +58,7 @@ function analysisFacts(payload) {
   try {
     const sc = JSON.parse(payload).result.structuredContent;
     if (sc.status === 'ok') {
-      return { ok: true, props: { provider_model: sc.provider && sc.provider.model, provider_ms: sc.provider && sc.provider.ms, candidates: (sc.candidates || []).length, top_match: sc.candidates && sc.candidates[0] ? sc.candidates[0].name : undefined, match_confidence: sc.analysis && sc.analysis.match_confidence, is_lego: sc.analysis && sc.analysis.is_lego_model } };
+      return { ok: true, seg: sc.segmentation ? { provider_model: sc.segmentation.model, bricks: sc.segmentation.bricks, outlined: !!sc.segmentation.outlined } : null, props: { provider_model: sc.provider && sc.provider.model, provider_ms: sc.provider && sc.provider.ms, candidates: (sc.candidates || []).length, top_match: sc.candidates && sc.candidates[0] ? sc.candidates[0].name : undefined, match_confidence: sc.analysis && sc.analysis.match_confidence, is_lego: sc.analysis && sc.analysis.is_lego_model, segmented: !!sc.segmentation } };
     }
     return { ok: false, props: { error_code: sc.error } };
   } catch {
@@ -100,6 +100,7 @@ export function events({ userId, msgs, ua, client, status, ms, payload, error, n
       if (tool === 'model_analyze_photo' && msgs.length === 1) {
         const a = analysisFacts(payload);
         if (a) out.push({ ...base, event_type: a.ok ? 'photo_model_analyzed' : 'meta_request_failed', event_properties: { client, ms, ...a.props } });
+        if (a && a.seg) out.push({ ...base, event_type: 'photo_segmented', event_properties: { client, ...a.seg } });
       }
     } else {
       out.push({ ...base, event_type: m.method === 'initialize' ? 'session_start' : 'mcp_' + m.method.replace(/\W+/g, '_'), event_properties: { client, status, ms } });

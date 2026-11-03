@@ -603,7 +603,7 @@ export function buildServer(opts) {
     inputSchema: {
       name: z.string().describe('saved or built-in model name (see model_list)'),
       lang: z.enum(['ru', 'en']).optional().describe('card language, "en" when the user writes in English'),
-      mode: z.enum(['picture', 'steps']).optional(),
+      mode: z.enum(['picture', 'steps', 'video']).optional(),
       confirmed: z.boolean().optional().describe('true when the user picked this model after model_analyze_photo'),
     },
     annotations: ro,
@@ -615,6 +615,27 @@ export function buildServer(opts) {
     const nf = require('../lib/nodefilm.cjs');
     const m = core.loadModel(name);
     const md = mode || 'picture';
+    // video: the existing build film played backwards (same renderer, same model data), cached by key
+    let videoUrl = null;
+    if (md === 'video') {
+      const filmModel = { ...m, title: require('../lib/ideas.cjs').titleEn(m.title), lang: 'en' };
+      const q = FILM_CHAT;
+      const key = 'unbuild-' + filmKey(filmModel, 'horizontal', q);
+      const cache = opts && opts.videoCache;
+      videoUrl = cache ? await cache.get(key).catch(() => null) : null;
+      if (!videoUrl) {
+        const t0 = Date.now();
+        const fwd = path.join(exportsDir(), String(m.name || name).replace(/[^a-z0-9_-]+/gi, '-') + '-build-16x9.mp4');
+        const r = await film.render(filmModel, fwd, { format: 'horizontal', ...q });
+        const out = fwd.replace('-build-', '-unbuild-');
+        const ff = (() => { try { return require('ffmpeg-static'); } catch { return 'ffmpeg'; } })();
+        // reverse video and audio together (the landing clicks become lifting clicks)
+        require('node:child_process').execFileSync(ff, ['-y', '-i', r.file, '-vf', 'reverse', ...(r.audio ? ['-af', 'areverse'] : ['-an']), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '23', '-movflags', '+faststart', out], { stdio: 'ignore' });
+        videoUrl = await fileUrl(out);
+        console.log(JSON.stringify({ ev: 'video', unbuild: true, render_ms: Date.now() - t0, bytes: fs.statSync(out).size }));
+        if (cache && videoUrl) await cache.set(key, videoUrl).catch(() => {});
+      }
+    }
     const inv = dis.assertReverseInvariant(m);
     const N = m.steps.length;
     const base = String(m.name || name).replace(/[^a-z0-9_-]+/gi, '-');
@@ -634,8 +655,8 @@ export function buildServer(opts) {
     }));
     const bom = dis.disassemblyBOM(m).map((b) => { const ru = core.LEGO.LIB[b.id] ? core.LEGO.LIB[b.id].ru : b.id; const ci = colorInfo(b.color); return { id: b.id, name: L === 'en' ? i18n.partEn(ru) : ru, color: b.color, colorName: L === 'en' ? (ci.name || b.color) : ci.ru, hex: ci.hex, qty: b.qty }; });
     const data = {
-      name: m.name || name, title: L === 'en' ? require('../lib/ideas.cjs').titleEn(m.title) : m.title, lang: L, parts: inv.parts, steps: N, format: 'vertical', mode: md,
-      posterUrl: urls[0], stepUrls: urls.slice(2), videoUrl: null, bom,
+      name: m.name || name, title: L === 'en' ? require('../lib/ideas.cjs').titleEn(m.title) : m.title, lang: L, parts: inv.parts, steps: N, mode: md,
+      posterUrl: urls[0], stepUrls: urls.slice(2), videoUrl, bom, format: md === 'video' ? 'horizontal' : 'vertical',
       disassembly: { direction: 'disassemble', explodedUrl: urls[1], explodedRendered: true, source: 'exact-model-json', sequence: inv.sequence, physicallyValidated: false },
     };
     const md2 = [urls[0] ? `![${m.title}](${urls[0]})` : '', urls[1] ? `![Exploded view](${urls[1]})` : '',
@@ -664,10 +685,11 @@ export function buildServer(opts) {
       image: z.string().optional().describe('or the photo as an https URL, data: URL or base64'),
       hint: z.string().max(120).optional().describe('what the user says it is, e.g. "a cat"'),
       lang: z.enum(['ru', 'en']).optional().describe('card language, "en" when the user writes in English'),
+      segment: z.boolean().optional().describe('also outline the model and box visible bricks on the photo with Meta SAM 3.1 (default true)'),
     },
     annotations: hints(true, false, false, true),
     _meta: { ...cardMeta, 'openai/fileParams': ['files'] },
-  }, safe(async ({ files, image, hint, lang }) => {
+  }, safe(async ({ files, image, hint, lang, segment }) => {
     const L = lang === 'en' ? 'en' : 'ru';
     const tEn = (t) => (L === 'en' ? require('../lib/ideas.cjs').titleEn(t) : t);
     const src = (files && files[0] && files[0].download_url) || image;
@@ -675,8 +697,17 @@ export function buildServer(opts) {
     const an = require('../lib/analyze.cjs');
     const { budget } = require('../lib/budget.cjs');
     let r;
+    let seg = null;
     try {
-      r = await an.analyze({ src, hint, budget: budget(opts && opts.metaBudgetStore) });
+      const pic = await an.preparePhoto(src);
+      const b = budget(opts && opts.metaBudgetStore);
+      // Muse Spark (what is it) and SAM 3.1 (where is it) in parallel on the same photo; SAM is
+      // optional: if it fails the analysis still stands
+      const segP = segment === false ? Promise.resolve(null) : require('../lib/segment.cjs').segment({ dataUrl: pic.dataUrl, budget: b }).catch((e) => {
+        console.log(JSON.stringify({ ev: 'sam_error', code: e.code || 'META_UNAVAILABLE', status: e.status }));
+        return null;
+      });
+      [r, seg] = await Promise.all([an.analyze({ src, hint, budget: b, pic }), segP]);
     } catch (e) {
       const code = e.code || 'META_UNAVAILABLE';
       // server log only: code, HTTP status, short reason; never the photo, prompt or key
@@ -691,7 +722,13 @@ export function buildServer(opts) {
       };
     }
     if (opts && opts.onMeta) opts.onMeta({ ok: true, model: r.provider.model, costUsd: r.provider.costUsd, ms: r.provider.ms, candidates: r.candidates.length, confidence: r.analysis.match_confidence });
-    const data = { kind: 'analysis', lang: L, status: 'ok', analysis: r.analysis, candidates: r.candidates.map((c) => ({ ...c, title: tEn(c.title) })), provider: { model: r.provider.model, responseId: r.provider.responseId, ms: r.provider.ms } };
+    let segData = null;
+    if (seg) {
+      const f = path.join(exportsDir(), 'sam-' + require('node:crypto').createHash('sha1').update(seg.overlay).digest('hex').slice(0, 16) + '.png');
+      fs.writeFileSync(f, seg.overlay);
+      segData = { model: seg.model, bricks: seg.bricks, outlined: !!seg.outline, overlayUrl: await fileUrl(f), responseIds: seg.responseIds };
+    }
+    const data = { kind: 'analysis', lang: L, status: 'ok', analysis: r.analysis, candidates: r.candidates.map((c) => ({ ...c, title: tEn(c.title) })), provider: { model: r.provider.model, responseId: r.provider.responseId, ms: r.provider.ms }, ...(segData ? { segmentation: segData } : {}) };
     const found = r.candidates.length;
     return {
       structuredContent: data,

@@ -25,6 +25,7 @@
     "meta:compare": "node --use-system-ca --env-file=.env.local test/meta-compare.mjs"
   },
   "dependencies": {
+    "@meta-sam/parser": "^0.1.0",
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@napi-rs/canvas": "^1.0.9",
     "@vercel/blob": "^2.8.0",

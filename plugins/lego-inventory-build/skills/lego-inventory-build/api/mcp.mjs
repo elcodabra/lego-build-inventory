@@ -69,7 +69,7 @@ const QUOTA = {
   video: Number(process.env.LEGO_QUOTA_VIDEO || 10),
   photo: Number(process.env.LEGO_QUOTA_PHOTO || 40),
 };
-const isVideo = (m) => m.params && ((m.params.name === 'show_build' && m.params.arguments && m.params.arguments.mode === 'video') || m.params.name === 'model_render');
+const isVideo = (m) => m.params && (((m.params.name === 'show_build' || m.params.name === 'model_disassemble') && m.params.arguments && m.params.arguments.mode === 'video') || m.params.name === 'model_render');
 const isPhoto = (m) => m.params && /^(parts_from_(pile_)?photo|model_analyze_photo)$/.test(m.params.name);
 const usageOf = (msgs) => {
   const calls = msgs.filter((m) => m && m.method === 'tools/call');
