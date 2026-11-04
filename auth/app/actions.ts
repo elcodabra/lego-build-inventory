@@ -10,11 +10,11 @@ import { rateLimit } from '@/lib/ratelimit';
 import { currentUser, endSession, saveUser, startSession } from '@/lib/users';
 
 type Result<T = unknown> = { ok: true; data?: T } | { ok: false; error: string };
-const fail = (e: unknown): Result => ({ ok: false, error: e instanceof Error ? e.message : 'Ошибка' });
+const fail = (e: unknown): Result => ({ ok: false, error: e instanceof Error ? e.message : 'Error · Ошибка' });
 
 async function guard(bucket: string, limit = 30) {
   await assertSameOrigin();
-  if (!(await rateLimit(bucket, limit, 60))) throw new Error('Слишком много попыток, подождите минуту');
+  if (!(await rateLimit(bucket, limit, 60))) throw new Error('Too many attempts, wait a minute · Слишком много попыток, подождите минуту');
 }
 
 export async function passkeyRegisterStart(name: string): Promise<Result> {

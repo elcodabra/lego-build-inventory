@@ -15,7 +15,7 @@ export const ISSUER = strip(process.env.AUTH_ISSUER || 'http://localhost:3100');
 export const RESOURCES = (process.env.AUTH_RESOURCES || 'http://localhost:18800/mcp').split(',').map((s) => s.trim()).filter(Boolean);
 export const SCOPES = ['lego'];
 export const RP_ID = new URL(ISSUER).hostname;
-export const RP_NAME = 'LEGO из моих деталей';
+export const RP_NAME = 'LEGO from My Bricks';
 export const SECURE = ISSUER.startsWith('https://');
 
 export const TTL = {

@@ -27,6 +27,10 @@ Live in ChatGPT (real UI, Nov 4 2026): the disassembly card for the built-in cat
 
 ![The disassembly card inside ChatGPT](docs/img/chatgpt-disassemble-card.png)
 
+Live in Claude (real UI, Nov 4 2026): rebuild ideas from the cat's 106 parts, with BrickLink wanted lists for the ones that are close.
+
+![Rebuild ideas inside Claude](docs/img/claude-rebuild-card.png)
+
 ```
 📷 photo of one part  → Brickognize (part number + colour) ─┐
 📷 photo of a pile    → Claude/ChatGPT reads it by eye → CSV ─┼→ inventory → ideas_suggest → idea_build → preview / mp4

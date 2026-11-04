@@ -15,7 +15,7 @@ const page = (title: string, text: string, status = 400) => new Response(
 );
 
 export async function GET(req: Request) {
-  if (!(await rateLimit('authorize', 60, 60))) return page('Слишком много запросов', 'Попробуйте через минуту.', 429);
+  if (!(await rateLimit('authorize', 60, 60))) return page('Too many requests · Слишком много запросов', 'Try again in a minute.', 429);
   const params = new URL(req.url).searchParams;
   let id: string;
   try {
@@ -24,7 +24,7 @@ export async function GET(req: Request) {
     track('authorize_started', { client: clientKind(r.clientId, r.clientName), verified: r.verified, cimd: /^https:/.test(r.clientId) });
   } catch (e) {
     if (e instanceof RedirectableError) { track('authorize_error', { error: e.code }); return Response.redirect(redirectWith(e.redirectUri, { error: e.code, error_description: e.message, state: e.state }), 302); }
-    if (e instanceof ClientError) { track('authorize_error', { error: e.code, client_shown_page: true }); return page('Не получилось подключить приложение', e.message); }
+    if (e instanceof ClientError) { track('authorize_error', { error: e.code, client_shown_page: true }); return page('Could not connect the app · Не получилось подключить приложение', e.message); }
     throw e;
   }
   redirect(`/consent?r=${encodeURIComponent(id)}`);

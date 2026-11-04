@@ -34,16 +34,16 @@ export async function registrationOptions(displayName: string) {
 
 export async function finishRegistration(cid: string, response: any, addToUserId?: string) {
   const c = await kv.take(`chal:${String(cid)}`);
-  if (!c || c.kind !== 'reg') throw new Error('Время вышло, попробуйте ещё раз');
+  if (!c || c.kind !== 'reg') throw new Error('Timed out, please try again · Время вышло, попробуйте ещё раз');
   const v = await verifyRegistrationResponse({ response, expectedChallenge: c.challenge, expectedOrigin: ORIGIN, expectedRPID: RP_ID, requireUserVerification: false });
-  if (!v.verified || !v.registrationInfo) throw new Error('Не удалось проверить ключ доступа');
+  if (!v.verified || !v.registrationInfo) throw new Error('Could not verify the passkey · Не удалось проверить ключ доступа');
   const cred = v.registrationInfo.credential;
-  if (await getPasskey(cred.id)) throw new Error('Этот ключ доступа уже зарегистрирован');
+  if (await getPasskey(cred.id)) throw new Error('This passkey is already registered · Этот ключ доступа уже зарегистрирован');
   const user = addToUserId ? await getUser(addToUserId) : await createUser(c.name);
-  if (!user) throw new Error('Аккаунт не найден');
+  if (!user) throw new Error('Account not found · Аккаунт не найден');
   await addPasskey({
     id: cred.id, userId: user.id, publicKey: Buffer.from(cred.publicKey).toString('base64url'), counter: cred.counter,
-    transports: response?.response?.transports, created: Date.now(), name: v.registrationInfo.credentialDeviceType === 'multiDevice' ? 'Синхронизируемый ключ' : 'Ключ на устройстве',
+    transports: response?.response?.transports, created: Date.now(), name: v.registrationInfo.credentialDeviceType === 'multiDevice' ? 'Synced passkey' : 'Device passkey',
   });
   return user;
 }
@@ -59,16 +59,16 @@ export async function authenticationOptions() {
 
 export async function finishAuthentication(cid: string, response: any) {
   const c = await kv.take(`chal:${String(cid)}`);
-  if (!c || c.kind !== 'auth') throw new Error('Время вышло, попробуйте ещё раз');
+  if (!c || c.kind !== 'auth') throw new Error('Timed out, please try again · Время вышло, попробуйте ещё раз');
   const pk = await getPasskey(String(response?.id || ''));
-  if (!pk) throw new Error('Этот ключ доступа нам не знаком. Создайте аккаунт.');
+  if (!pk) throw new Error('We don\'t know this passkey. Create an account. · Этот ключ доступа нам не знаком. Создайте аккаунт.');
   const v = await verifyAuthenticationResponse({
     response, expectedChallenge: c.challenge, expectedOrigin: ORIGIN, expectedRPID: RP_ID, requireUserVerification: false,
     credential: { id: pk.id, publicKey: Buffer.from(pk.publicKey, 'base64url'), counter: pk.counter, transports: pk.transports as any },
   });
-  if (!v.verified) throw new Error('Не удалось проверить ключ доступа');
+  if (!v.verified) throw new Error('Could not verify the passkey · Не удалось проверить ключ доступа');
   await updatePasskeyCounter(pk, v.authenticationInfo.newCounter);
   const user = await getUser(pk.userId);
-  if (!user) throw new Error('Аккаунт не найден');
+  if (!user) throw new Error('Account not found · Аккаунт не найден');
   return user;
 }

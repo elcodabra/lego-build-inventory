@@ -10,7 +10,7 @@ export default async function Consent({ searchParams }: { searchParams: Promise<
   const { r } = await searchParams;
   const req = await getAuthRequest(String(r || ''));
   if (!req) {
-    return (<div className="card"><h1>Ссылка устарела</h1><p className="muted">Вернитесь в ChatGPT или Claude и подключите приложение ещё раз.</p></div>);
+    return (<div className="card"><h1>This link has expired · Ссылка устарела</h1><p className="muted">Go back to ChatGPT or Claude and connect the app again.</p></div>);
   }
   const user = await currentUser();
   // A client's name is only trusted when its identity is bound to a domain we know (ChatGPT, Claude).
@@ -18,9 +18,9 @@ export default async function Consent({ searchParams }: { searchParams: Promise<
   // cannot pass for the real one.
   const who = req.verified
     ? <><b>{req.clientName}</b> <span className="muted">({req.clientHost})</span></>
-    : <><b>{req.clientHost || 'неизвестное приложение'}</b> <span className="muted">(называет себя «{req.clientName}»)</span></>;
+    : <><b>{req.clientHost || 'unknown app'}</b> <span className="muted">(calls itself “{req.clientName}”)</span></>;
   const warn = !req.verified && (
-    <p className="error small" data-testid="unverified">Это приложение не проверено. Разрешайте доступ, только если сами подключали его и узнаёте адрес {req.clientHost}.</p>
+    <p className="error small" data-testid="unverified">This app is not verified. Allow access only if you connected it yourself and recognise the address {req.clientHost}.</p>
   );
   if (!user) {
     return (

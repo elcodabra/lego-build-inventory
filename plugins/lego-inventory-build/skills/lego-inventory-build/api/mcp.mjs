@@ -155,29 +155,31 @@ function keyPage(req) {
   const key = crypto.randomBytes(24).toString('base64url');
   const url = `https://${host}/mcp?key=${key}`;
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-  return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>LEGO из моих деталей · MCP</title><meta name="robots" content="noindex">
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LEGO from My Bricks · MCP</title><meta name="robots" content="noindex">
 <style>body{font:16px/1.5 system-ui,-apple-system,sans-serif;max-width:640px;margin:40px auto;padding:0 20px;color:#1f2328}
 code,input{font:14px ui-monospace,Menlo,monospace}input{width:100%;padding:10px;border:1px solid #d0d7de;border-radius:8px;box-sizing:border-box}
 button{margin-top:8px;padding:8px 16px;border:0;border-radius:999px;background:#ffd500;font-weight:600;cursor:pointer}
 ol li{margin:6px 0}.muted{color:#656d76;font-size:14px}</style></head><body>
-<h1>🧱 LEGO из моих деталей</h1>
-<p>MCP-сервер: сфотографируй свои детали, получи идеи, что собрать, и пошаговую инструкцию картинками или видео.</p>
-${oauth.enabled ? `<h2>Как подключить</h2>
-<p>Адрес приложения: <code>${esc(oauth.resourceFor(req))}</code></p>
-<ol><li><b>ChatGPT</b>: Settings → Apps → Create app, вставь адрес, Authentication: OAuth.</li>
-<li><b>Claude</b>: Settings → Connectors → Add custom connector, тот же адрес.</li>
-<li>Откроется окно входа: войди ключом доступа (Face ID, Touch ID или PIN) и нажми «Разрешить».</li></ol>
-<p class="muted">Аккаунт и подключённые приложения: <a href="${esc(oauth.ISSUER)}/account">${esc(new URL(oauth.ISSUER).host)}</a>. Лимит в сутки: ${QUOTA.calls} вызовов, ${QUOTA.video} видео, ${QUOTA.photo} фото. Мы считаем анонимную статистику использования (какие инструменты вызываются), без фото, списков деталей и личных данных. Картинки и видео хранятся ${Number(process.env.LEGO_MEDIA_DAYS || 30)} дней. Фото готовой модели (model_analyze_photo) отправляется на анализ в Meta Model API (Muse Spark) и у нас не хранится.</p>`
-    : open ? `<h2>Твоя ссылка для подключения</h2>
-<input id="u" readonly value="${esc(url)}" onclick="this.select()"><button onclick="navigator.clipboard.writeText(document.getElementById('u').value);this.textContent='Скопировано'">Скопировать</button>
-<p class="muted">Ссылка личная: в ней ключ к твоим деталям и моделям. Сохрани её, мы её не храним и восстановить не сможем. Обновишь страницу — получишь новую, с пустым набором.</p>
-<h2>Как подключить</h2>
-<ol><li><b>ChatGPT</b>: Settings → Apps → Advanced → Developer mode → Create app, URL = ссылка выше, Authentication: No Auth.</li>
-<li><b>Claude</b>: Settings → Connectors → Add custom connector, URL = ссылка выше.</li></ol>
-<p class="muted">Лимит на ключ в сутки: ${QUOTA.calls} вызовов, ${QUOTA.video} видео, ${QUOTA.photo} фото. Мы считаем анонимную статистику использования (какие инструменты вызываются), без фото, списков деталей и ключей. Картинки и видео хранятся ${Number(process.env.LEGO_MEDIA_DAYS || 30)} дней. Фото готовой модели (model_analyze_photo) отправляется на анализ в Meta Model API (Muse Spark) и у нас не хранится.</p>`
-    : '<p>Сервер работает по личному ключу владельца.</p>'}
-<p class="muted"><a href="https://github.com/elcodabra/lego-build-inventory">GitHub</a> · LEGO® is a trademark of the LEGO Group, this project is not affiliated with it.</p>
+<h1>🧱 LEGO from My Bricks</h1>
+<p>An MCP app for ChatGPT and Claude: photograph your parts and get ideas for what to build with step-by-step instructions, or photograph a model you already built (Meta Muse Spark + SAM 3.1) and get the exact way to take it apart and what else to build from the same bricks.</p>
+${oauth.enabled ? `<h2>How to connect</h2>
+<p>App URL: <code>${esc(oauth.resourceFor(req))}</code></p>
+<ol><li><b>ChatGPT</b>: Settings → Apps → Create app, paste the URL, Authentication: OAuth.</li>
+<li><b>Claude</b>: Settings → Connectors → Add custom connector, same URL.</li>
+<li>A sign-in window opens: sign in with a passkey (Face ID, Touch ID or device PIN; no password, no e-mail) and press “Allow”.</li>
+<li>Try: <i>“Use the LEGO app in English: show me how to take apart the built-in cat model, then what else I can build from its parts.”</i></li></ol>
+<p class="muted">Account and connected apps: <a href="${esc(oauth.ISSUER)}/account">${esc(new URL(oauth.ISSUER).host)}</a>. Daily limit: ${QUOTA.calls} tool calls, ${QUOTA.video} videos, ${QUOTA.photo} photos. We count anonymous usage statistics (which tools are called), without photos, parts lists or personal data. Pictures and videos are kept for ${Number(process.env.LEGO_MEDIA_DAYS || 30)} days. A photo of a built model (model_analyze_photo) is sent for analysis to the Meta Model API (Muse Spark, SAM 3.1) and is not stored by us.</p>`
+    : open ? `<h2>Your personal connection link</h2>
+<input id="u" readonly value="${esc(url)}" onclick="this.select()"><button onclick="navigator.clipboard.writeText(document.getElementById('u').value);this.textContent='Copied'">Copy</button>
+<p class="muted">The link is personal: it holds the key to your parts and models. Save it; we don't store it and cannot recover it. Reloading the page gives a new link with an empty set.</p>
+<h2>How to connect</h2>
+<ol><li><b>ChatGPT</b>: Settings → Apps → Advanced → Developer mode → Create app, URL = the link above, Authentication: No Auth.</li>
+<li><b>Claude</b>: Settings → Connectors → Add custom connector, URL = the link above.</li></ol>
+<p class="muted">Daily limit per key: ${QUOTA.calls} tool calls, ${QUOTA.video} videos, ${QUOTA.photo} photos. We count anonymous usage statistics (which tools are called), without photos, parts lists or keys. Pictures and videos are kept for ${Number(process.env.LEGO_MEDIA_DAYS || 30)} days. A photo of a built model (model_analyze_photo) is sent for analysis to the Meta Model API (Muse Spark) and is not stored by us.</p>`
+    : '<p>This server runs on the owner\'s personal key.</p>'}
+<p class="muted">По-русски: приложение работает на русском и английском, подключение такое же.</p>
+<p class="muted"><a href="https://github.com/elcodabra/lego-build-inventory">GitHub</a> · LEGO® is a trademark of the LEGO Group, which does not sponsor, authorize or endorse this project.</p>
 </body></html>`;
 }
 

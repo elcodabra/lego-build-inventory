@@ -16,7 +16,7 @@ export default function Login({ addOnly = false }: { addOnly?: boolean }) {
     setBusy(true); setErr('');
     try { await fn(); window.location.reload(); } catch (e: any) {
       const m = String(e?.message || e);
-      setErr(/NotAllowed|abort|cancel/i.test(m) ? 'Отменено' : m);
+      setErr(/NotAllowed|abort|cancel/i.test(m) ? 'Cancelled · Отменено' : m);
       setBusy(false);
     }
   };
@@ -31,8 +31,8 @@ export default function Login({ addOnly = false }: { addOnly?: boolean }) {
     const f: any = await passkeyRegisterFinish(s.data.cid, resp); if (!f.ok) throw new Error(f.error);
   });
 
-  if (!supported) return <p className="error">Этот браузер не поддерживает ключи доступа (passkeys). Откройте страницу в Safari, Chrome или Edge.</p>;
-  if (addOnly) return (<><button className="btn" disabled={busy} onClick={signUp} data-testid="add-passkey">Добавить ключ доступа</button>{err && <p className="error">{err}</p>}</>);
+  if (!supported) return <p className="error">This browser does not support passkeys. Open the page in Safari, Chrome or Edge. · Этот браузер не поддерживает ключи доступа.</p>;
+  if (addOnly) return (<><button className="btn" disabled={busy} onClick={signUp} data-testid="add-passkey">Add a passkey · Добавить ключ доступа</button>{err && <p className="error">{err}</p>}</>);
   return (
     <>
       <button className="btn primary" disabled={busy} onClick={signIn} data-testid="signin">Sign in with a passkey · Войти с ключом доступа</button>
