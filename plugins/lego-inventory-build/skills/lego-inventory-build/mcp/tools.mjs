@@ -202,7 +202,7 @@ export function buildServer(opts) {
   }));
 
   // card widget: shared by the ideas list and every visual tool (declared before the tools use it)
-  const PLAYER_URI = 'ui://lego/card-v5.html';
+  const PLAYER_URI = 'ui://lego/card-v6.html';
   const colorInfo = (k) => core.LEGO.COLORS[k] || { hex: '#999', ru: k };
   // Every tool that produces something visual answers with the same card, so the user sees the
   // model whichever of them the chat model happens to pick.
@@ -328,9 +328,16 @@ export function buildServer(opts) {
     description: 'Use this when the user asks what they can build from their parts. Shows the ideas as a card with a REAL picture of each model built from the user\'s own parts (and a «Собрать» button), plus ideas that are close with the exact parts missing. ' +
       'The card is the answer: never add pictures from the web or of official sets, and do not invent ideas that are not in the list.',
     annotations: ro,
+    inputSchema: {
+      from_model: z.string().optional().describe('use the parts of this saved/built-in model instead of the inventory ("what else can I build from the cat")'),
+      lang: z.enum(['ru', 'en']).optional(),
+    },
     _meta: cardMeta,
-  }, safe(async () => {
-    const inv = core.loadInventory();
+  }, safe(async ({ from_model, lang } = {}) => {
+    const EN = lang === 'en';
+    // parts of a known model (its exact BOM) instead of the inventory; the inventory is not touched
+    const fromM = from_model ? core.loadModel(from_model) : null;
+    const inv = fromM ? { items: core.bom(fromM).map((b) => ({ id: b.id, color: b.color, qty: b.qty })) } : core.loadInventory();
     const s = ideas.suggest(inv);
     if (!s.drawableParts) return text('Inventory is empty: ask for photos of the parts (parts_from_photo), a parts list (inventory_import) or set numbers (inventory_add_set).');
     // a thumbnail of every buildable idea, built from these very parts (same generator as idea_build)
@@ -344,10 +351,19 @@ export function buildServer(opts) {
         return await fileUrl(f);
       } catch { return null; }
     }));
+    const almostList = s.almost.slice(0, 2);
+    const wantedUrls = await Promise.all(almostList.map(async (a) => {
+      try {
+        const f = path.join(exportsDir(), `wanted-${a.idea}-${require('node:crypto').createHash('sha1').update(JSON.stringify(a.missing)).digest('hex').slice(0, 10)}.xml`);
+        fs.writeFileSync(f, require('../lib/shopping.cjs').wantedListXml(a.missing || []));
+        return await fileUrl(f);
+      } catch { return null; }
+    }));
     const data = {
-      kind: 'ideas', name: 'ideas', title: 'Что собрать из твоих деталей', drawableParts: s.drawableParts,
-      ideas: list.map((b, i) => ({ idea: b.idea, title: b.title, about: b.about, parts: b.parts, steps: b.steps, usesPercent: b.usesPercent, thumbUrl: thumbs[i] || null })),
-      almost: s.almost.slice(0, 2).map((a) => ({ idea: a.idea, title: a.title, missing: (a.missing || []).slice(0, 4).map((m) => ({ name: m.name || m.id, color: colorInfo(m.color).ru, qty: m.qty })) })),
+      kind: 'ideas', name: 'ideas', ...(EN ? { lang: 'en' } : {}), ...(fromM ? { fromModel: from_model } : {}),
+      title: fromM ? (EN ? `What else to build from the ${ideas.titleEn(fromM.title)}'s ${fromM.steps.flat().length} parts` : `Что ещё собрать из деталей «${fromM.title}»`) : (EN ? 'What to build from your bricks' : 'Что собрать из твоих деталей'), drawableParts: s.drawableParts,
+      ideas: list.map((b, i) => ({ idea: b.idea, title: EN ? ideas.titleEn(b.title) : b.title, about: b.about, parts: b.parts, steps: b.steps, usesPercent: b.usesPercent, thumbUrl: thumbs[i] || null })),
+      almost: almostList.map((a, i) => ({ idea: a.idea, title: EN ? ideas.titleEn(a.title) : a.title, missingTotal: (a.missing || []).reduce((n, m) => n + m.qty, 0), wantedUrl: wantedUrls[i] || null, missing: (a.missing || []).slice(0, 4).map((m) => ({ name: EN ? require('../lib/i18n.cjs').partEn(m.name || m.id) : (m.name || m.id), color: EN ? (colorInfo(m.color).name || m.color) : colorInfo(m.color).ru, qty: m.qty })) })),
     };
     return {
       structuredContent: data,
@@ -366,11 +382,13 @@ export function buildServer(opts) {
       idea: z.enum(Object.keys(ideas.GENERATORS)),
       size: z.union([z.number().int(), z.string()]).optional().describe('sizeIndex or size label from ideas_suggest; default: largest that fits'),
       allowMissing: z.boolean().optional().describe('build even if parts are missing (lists what to add)'),
+      from_model: z.string().optional().describe('build from the parts of this saved/built-in model (after ideas_suggest from_model)'),
     },
     annotations: hints(false, false, true, false), // overwrites the saved model of that idea with the same result
     _meta: { 'openai/widgetAccessible': true }, // the ideas card's «Собрать» button calls it
-  }, safe(async ({ idea, size, allowMissing }) => {
-    const inv = core.loadInventory();
+  }, safe(async ({ idea, size, allowMissing, from_model }) => {
+    const fromM = from_model ? core.loadModel(from_model) : null;
+    const inv = fromM ? { items: core.bom(fromM).map((b) => ({ id: b.id, color: b.color, qty: b.qty })) } : core.loadInventory();
     const r = ideas.build(idea, inv, size, { shopping: !!allowMissing });
     const saved = core.saveModel({ ...r.model, name: idea });
     const check = core.fullCheck(core.loadModel(saved.name), inv);
@@ -412,7 +430,7 @@ export function buildServer(opts) {
 
   s.registerTool('model_list', {
     title: 'List models',
-    description: 'Saved models and built-in examples (cat, microduck).',
+    description: 'Saved models and built-in examples (cat, microduck, cottage).',
     annotations: ro,
   }, safe(async () => text(core.listModels().map((x) => x.name))));
 
@@ -451,7 +469,8 @@ export function buildServer(opts) {
   // skip the render next time (pressing «Видео» again, or asking for it in a new chat).
   const filmKey = (m, format, q) => require('node:crypto').createHash('sha1')
     .update(JSON.stringify({ v: 5, sound: require('../lib/sound.cjs').enabled(), lang: m.lang || 'ru', title: m.title, theta: m.theta, phi: m.phi, steps: m.steps, format: format || 'vertical', q, ...(m.intro ? { intro: require('node:crypto').createHash('sha1').update(String(m.intro)).digest('hex') } : {}) })).digest('hex');
-  async function card(m, md, format, fallbackName, quality) {
+  async function card(m, md, format, fallbackName, quality, lang) {
+    const EN = lang === 'en';
     const base = String(m.name || fallbackName || 'model').replace(/[^a-z0-9_-]+/gi, '-') + (format === 'horizontal' ? '-16x9' : '');
     // model-only square pictures: the finished model, and for steps one picture per step with
     // earlier parts pale and the new ones outlined (same camera, so they line up when paging)
@@ -512,9 +531,9 @@ export function buildServer(opts) {
         if (opts && opts.onVideo) youtubeUrl = await opts.onVideo(r.file, { key, intro: !!m.intro, title: filmModel.title, parts: m.steps.flat().length, steps: m.steps.length, format: format || 'vertical' }).catch(() => null);
       }
     }
-    const bom = core.bom(m).map((b) => ({ id: b.id, name: b.name, color: b.color, colorName: colorInfo(b.color).ru, hex: colorInfo(b.color).hex, qty: b.qty }));
+    const bom = core.bom(m).map((b) => { const ci = colorInfo(b.color); return { id: b.id, name: EN ? require('../lib/i18n.cjs').partEn(b.name) : b.name, color: b.color, colorName: EN ? (ci.name || b.color) : ci.ru, hex: ci.hex, qty: b.qty }; });
     const data = {
-      name: m.name || fallbackName || '', title: m.title, parts: m.steps.flat().length, steps: m.steps.length, format: format || 'vertical', mode: md,
+      name: m.name || fallbackName || '', title: EN ? require('../lib/ideas.cjs').titleEn(m.title) : m.title, ...(EN ? { lang: 'en' } : {}), parts: m.steps.flat().length, steps: m.steps.length, format: format || 'vertical', mode: md,
       posterUrl: urls[0], stepUrls: urls.slice(1), videoUrl, youtubeUrl, ...(pageBg ? { bg: pageBg } : {}), bom, ...(m.intro ? { pileIntro: true } : {}),
     };
     const next = md === 'picture' ? '«шаги картинками» или «видео»' : md === 'steps' ? '«видео»' : 'собрать что-то ещё';
@@ -581,12 +600,167 @@ export function buildServer(opts) {
       '(prefer it over model_render, which only returns a download link).',
     inputSchema: {
       name: z.string().describe('saved model name, e.g. the idea name after idea_build'),
+      lang: z.enum(['ru', 'en']).optional().describe('card language, "en" when the user writes in English'),
       mode: z.enum(['picture', 'steps', 'video']).optional(),
       format: z.enum(['vertical', 'horizontal']).optional(),
     },
     annotations: ro,
     _meta: cardMeta,
-  }, safe(async ({ name, mode, format }) => (await card(core.loadModel(name), mode || 'picture', format, name)).result));
+  }, safe(async ({ name, mode, format, lang }) => (await card(core.loadModel(name), mode || 'picture', format, name, undefined, lang)).result));
+
+  // ---------------------------------------------------------------- disassembly of a known model
+
+  // Reverse instructions straight from the stored JSON: reverse step k removes original step N-k+1
+  // (outlined), the exploded view lifts each build step apart for the picture only. The model,
+  // its BOM and the inventory are never changed.
+  s.registerTool('model_disassemble', {
+    title: 'Disassemble a known model',
+    description: 'Show how to take a SAVED or built-in model apart, as a card: exact parts list, exploded view and reverse steps ' +
+      '(the build steps backwards, taken from the model JSON). mode "picture" (default): model + exploded view; mode "steps": also the reverse steps. ' +
+      'Use it after the user confirms which model it is (e.g. after model_analyze_photo). Use show_build to go back to building.',
+    inputSchema: {
+      name: z.string().describe('saved or built-in model name (see model_list)'),
+      lang: z.enum(['ru', 'en']).optional().describe('card language, "en" when the user writes in English'),
+      mode: z.enum(['picture', 'steps', 'video']).optional(),
+      confirmed: z.boolean().optional().describe('true when the user picked this model after model_analyze_photo'),
+    },
+    annotations: ro,
+    _meta: cardMeta,
+  }, safe(async ({ name, mode, lang }) => {
+    const L = lang === 'en' ? 'en' : 'ru';
+    const i18n = require('../lib/i18n.cjs');
+    const dis = require('../lib/disassembly.cjs');
+    const nf = require('../lib/nodefilm.cjs');
+    const m = core.loadModel(name);
+    const md = mode || 'picture';
+    // video: the existing build film played backwards (same renderer, same model data), cached by key
+    let videoUrl = null;
+    if (md === 'video') {
+      const filmModel = { ...m, title: require('../lib/ideas.cjs').titleEn(m.title), lang: 'en' };
+      const q = FILM_CHAT;
+      const key = 'unbuild-' + filmKey(filmModel, 'horizontal', q);
+      const cache = opts && opts.videoCache;
+      videoUrl = cache ? await cache.get(key).catch(() => null) : null;
+      if (!videoUrl) {
+        const t0 = Date.now();
+        const fwd = path.join(exportsDir(), String(m.name || name).replace(/[^a-z0-9_-]+/gi, '-') + '-build-16x9.mp4');
+        const r = await film.render(filmModel, fwd, { format: 'horizontal', ...q });
+        const out = fwd.replace('-build-', '-unbuild-');
+        const ff = (() => { try { return require('ffmpeg-static'); } catch { return 'ffmpeg'; } })();
+        // reverse video and audio together (the landing clicks become lifting clicks)
+        require('node:child_process').execFileSync(ff, ['-y', '-i', r.file, '-vf', 'reverse', ...(r.audio ? ['-af', 'areverse'] : ['-an']), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '23', '-movflags', '+faststart', out], { stdio: 'ignore' });
+        videoUrl = await fileUrl(out);
+        console.log(JSON.stringify({ ev: 'video', unbuild: true, render_ms: Date.now() - t0, bytes: fs.statSync(out).size }));
+        if (cache && videoUrl) await cache.set(key, videoUrl).catch(() => {});
+      }
+    }
+    const inv = dis.assertReverseInvariant(m);
+    const N = m.steps.length;
+    const base = String(m.name || name).replace(/[^a-z0-9_-]+/gi, '-');
+    const shots = [
+      { f: `${base}-model.png`, png: () => nf.hero(m, { size: 720 }) },
+      { f: `${base}-exploded.png`, png: () => nf.hero(dis.explodedScene(m), { size: 720, badge: 'Exploded view: illustration only' }) },
+    ];
+    // reverse step k: what is still on the model, the parts to take off now outlined
+    if (md === 'steps') {
+      for (let k = 1; k <= N; k++) shots.push({ f: `${base}-unbuild${k}.png`, png: () => nf.hero(m, { size: 720, upto: N - k + 1, label: k, badge: `Disassembly ${k}/${N}: remove the outlined parts` }) });
+    }
+    const urls = [];
+    await Promise.all(shots.map(async (sh, i) => {
+      const f = path.join(exportsDir(), sh.f);
+      fs.writeFileSync(f, await sh.png());
+      urls[i] = await fileUrl(f);
+    }));
+    const bom = dis.disassemblyBOM(m).map((b) => { const ru = core.LEGO.LIB[b.id] ? core.LEGO.LIB[b.id].ru : b.id; const ci = colorInfo(b.color); return { id: b.id, name: L === 'en' ? i18n.partEn(ru) : ru, color: b.color, colorName: L === 'en' ? (ci.name || b.color) : ci.ru, hex: ci.hex, qty: b.qty }; });
+    const data = {
+      name: m.name || name, title: L === 'en' ? require('../lib/ideas.cjs').titleEn(m.title) : m.title, lang: L, parts: inv.parts, steps: N, mode: md,
+      posterUrl: urls[0], stepUrls: urls.slice(2), videoUrl, bom, format: md === 'video' ? 'horizontal' : 'vertical',
+      disassembly: { direction: 'disassemble', explodedUrl: urls[1], explodedRendered: true, source: 'exact-model-json', sequence: inv.sequence, physicallyValidated: false },
+    };
+    const md2 = [urls[0] ? `![${m.title}](${urls[0]})` : '', urls[1] ? `![Exploded view](${urls[1]})` : '',
+      ...urls.slice(2).map((u, i) => (u ? `![Разборка ${i + 1}](${u})` : ''))].filter(Boolean).join('\n');
+    return {
+      structuredContent: data,
+      content: [{ type: 'text', text:
+        `Карточка разборки «${m.title}» (${inv.parts} деталей, ${N} шагов) показана. Список деталей и шаги взяты из точного JSON модели; ` +
+        `порядок разборки = шаги сборки в обратном порядке, физически не проверен. Ответь одной фразой` +
+        (md === 'picture' ? ' и предложи «шаги разборки».' : '.') +
+        `\nЕсли карточки не видно, вставь этот markdown:\n${md2}` }],
+    };
+  }));
+
+  // ---------------------------------------------------------------- photo of a built model (Meta AI)
+
+  // The AI estimate never becomes geometry: it only proposes up to 3 KNOWN models; the user picks
+  // one in the card (or says which), and only then model_disassemble draws the exact model.
+  s.registerTool('model_analyze_photo', {
+    title: 'Recognise a built model from a photo',
+    description: 'Use this when the user shows a photo of an ALREADY BUILT LEGO model and wants to know what it is or how to take it apart. ' +
+      'Pass the uploaded file. Meta Muse Spark describes the visible colours and parts (an estimate) and suggests up to 3 possible matches among the saved and built-in models. ' +
+      'Show the card and ASK the user to confirm the match; call model_disassemble only for the model the user confirmed. Never present the estimate as exact parts. Takes 5-20 s.',
+    inputSchema: {
+      files: z.array(FileObj).max(3).optional().describe('the uploaded photo(s) (ChatGPT): up to 3 angles of the SAME model'),
+      images: z.array(z.string()).max(3).optional().describe('or up to 3 angles of the same model as https/data URLs'),
+      image: z.string().optional().describe('or the photo as an https URL, data: URL or base64'),
+      hint: z.string().max(120).optional().describe('what the user says it is, e.g. "a cat"'),
+      lang: z.enum(['ru', 'en']).optional().describe('card language, "en" when the user writes in English'),
+      segment: z.boolean().optional().describe('also outline the model and box visible bricks on the photo with Meta SAM 3.1 (default true)'),
+    },
+    annotations: hints(true, false, false, true),
+    _meta: { ...cardMeta, 'openai/fileParams': ['files'] },
+  }, safe(async ({ files, image, images, hint, lang, segment }) => {
+    const L = lang === 'en' ? 'en' : 'ru';
+    const tEn = (t) => (L === 'en' ? require('../lib/ideas.cjs').titleEn(t) : t);
+    const srcs = [...(files || []).map((f) => f.download_url), ...(images || []), ...(image ? [image] : [])].filter(Boolean).slice(0, 3);
+    const src = srcs[0];
+    if (!src) throw new Error('pass "files" (the uploaded photo) or "image"');
+    const an = require('../lib/analyze.cjs');
+    const { budget } = require('../lib/budget.cjs');
+    let r;
+    let seg = null;
+    try {
+      const pic = await an.preparePhoto(src);
+      const b = budget(opts && opts.metaBudgetStore);
+      // Muse Spark (what is it) and SAM 3.1 (where is it) in parallel on the same photo; SAM is
+      // optional: if it fails the analysis still stands
+      const segP = segment === false ? Promise.resolve(null) : require('../lib/segment.cjs').segment({ dataUrl: pic.dataUrl, budget: b }).catch((e) => {
+        console.log(JSON.stringify({ ev: 'sam_error', code: e.code || 'META_UNAVAILABLE', status: e.status }));
+        return null;
+      });
+      const extra = await Promise.all(srcs.slice(1).map((x) => an.preparePhoto(x)));
+      [r, seg] = await Promise.all([an.analyze({ src, hint, budget: b, pic, extra }), segP]);
+    } catch (e) {
+      const code = e.code || 'META_UNAVAILABLE';
+      // server log only: code, HTTP status, short reason; never the photo, prompt or key
+      console.log(JSON.stringify({ ev: 'meta_error', code, status: e.status, configured: !!process.env.MODEL_API_KEY, reason: String(e.message || '').slice(0, 80), model: e.model, tried: e.tried }));
+      if (opts && opts.onMeta) opts.onMeta({ ok: false, code, model: e.model, costUsd: e.costUsd });
+      const data = { kind: 'analysis', lang: L, status: 'unavailable', error: code, candidates: [], known: an.candidates().map((c) => ({ name: c.name, title: tEn(c.title), parts: c.parts })) };
+      return {
+        isError: code === 'INVALID_IMAGE',
+        structuredContent: data,
+        content: [{ type: 'text', text: `AI-анализ фото сейчас недоступен (${code}). Ничего не придумывай про фото. ` +
+          'Предложи пользователю самому выбрать модель из списка (model_list) и показать её разборку model_disassemble: она работает без AI.' }],
+      };
+    }
+    if (opts && opts.onMeta) opts.onMeta({ ok: true, model: r.provider.model, costUsd: r.provider.costUsd, ms: r.provider.ms, candidates: r.candidates.length, confidence: r.analysis.match_confidence });
+    let segData = null;
+    if (seg) {
+      const f = path.join(exportsDir(), 'sam-' + require('node:crypto').createHash('sha1').update(seg.overlay).digest('hex').slice(0, 16) + '.png');
+      fs.writeFileSync(f, seg.overlay);
+      segData = { model: seg.model, bricks: seg.bricks, outlined: !!seg.outline, overlayUrl: await fileUrl(f), responseIds: seg.responseIds };
+    }
+    const data = { kind: 'analysis', lang: L, status: 'ok', photos: srcs.length, analysis: r.analysis, candidates: r.candidates.map((c) => ({ ...c, title: tEn(c.title) })), provider: { model: r.provider.model, responseId: r.provider.responseId, ms: r.provider.ms }, ...(segData ? { segmentation: segData } : {}) };
+    const found = r.candidates.length;
+    return {
+      structuredContent: data,
+      content: [{ type: 'text', text:
+        `Muse Spark (${r.provider.model}) описал фото: ${r.analysis.object_summary}. ` +
+        (found
+          ? `Возможные совпадения среди известных моделей: ${r.candidates.map((c) => `${c.title} (${c.name})`).join(', ')}. Это предположение по фото. Спроси пользователя, та ли это модель; разборку (model_disassemble) покажи только после подтверждения.`
+          : 'Ни одна известная модель не подходит. Не подбирай модель наугад: честно скажи это и предложи снять с других ракурсов (' + (r.analysis.suggested_views.join(', ') || 'сбоку, сзади') + ') или выбрать модель вручную. ' +
+            'Чтобы модель стала известной, её нужно сохранить: фото кучи деталей -> ideas_suggest -> idea_build, или спроектировать по описанию и model_save. После этого она узнаётся по фото и разбирается.') }],
+    };
+  }));
 
   s.registerTool('model_render', {
     title: 'Render build video',

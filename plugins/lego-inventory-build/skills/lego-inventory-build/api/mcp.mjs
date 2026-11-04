@@ -69,17 +69,24 @@ const QUOTA = {
   video: Number(process.env.LEGO_QUOTA_VIDEO || 10),
   photo: Number(process.env.LEGO_QUOTA_PHOTO || 40),
 };
-const isVideo = (m) => m.params && ((m.params.name === 'show_build' && m.params.arguments && m.params.arguments.mode === 'video') || m.params.name === 'model_render');
-const isPhoto = (m) => m.params && /^parts_from_(pile_)?photo$/.test(m.params.name);
+const isVideo = (m) => m.params && (((m.params.name === 'show_build' || m.params.name === 'model_disassemble') && m.params.arguments && m.params.arguments.mode === 'video') || m.params.name === 'model_render');
+const isPhoto = (m) => m.params && /^(parts_from_(pile_)?photo|model_analyze_photo)$/.test(m.params.name);
 const usageOf = (msgs) => {
   const calls = msgs.filter((m) => m && m.method === 'tools/call');
-  return { calls: calls.length, video: calls.filter(isVideo).length, photo: calls.filter(isPhoto).length };
+  // a model analysis with several angles counts every photo (each one is sent to Meta)
+  const photoCount = (m) => {
+    if (!isPhoto(m)) return 0;
+    if (m.params.name !== 'model_analyze_photo') return 1;
+    const a = m.params.arguments || {};
+    return Math.max(1, Math.min(3, (Array.isArray(a.files) ? a.files.length : 0) + (Array.isArray(a.images) ? a.images.length : 0) + (a.image ? 1 : 0)));
+  };
+  return { calls: calls.length, video: calls.filter(isVideo).length, photo: calls.reduce((n, m) => n + photoCount(m), 0) };
 };
 
 // Requests that never read or write the user's parts/models: protocol handshakes and listings, and
 // the reference tools. They skip the state store entirely (no reads, no writes).
 const STATELESS_TOOLS = new Set(['lego_guide', 'lego_catalog', 'lego_photo_guide']);
-const BUILTIN_MODELS = new Set(['cat', 'microduck']);
+const BUILTIN_MODELS = new Set(['cat', 'microduck', 'cottage']);
 function callNeedsState(m) {
   const name = m.params && m.params.name;
   if (STATELESS_TOOLS.has(name)) return false;
@@ -103,7 +110,7 @@ async function publish(file) {
   const ext = path.extname(file);
   mediaStats.uploads++;
   const r = await put(`media/${crypto.randomBytes(12).toString('hex')}-${path.basename(file, ext)}${ext}`, buf, {
-    access: 'public', addRandomSuffix: false, contentType: ext === '.mp4' ? 'video/mp4' : 'image/png', token: MEDIA,
+    access: 'public', addRandomSuffix: false, contentType: ext === '.mp4' ? 'video/mp4' : ext === '.xml' ? 'application/xml' : 'image/png', token: MEDIA,
   });
   await store.rememberMedia(sha, r.url, MEDIA_DAYS).catch(() => {});
   return r.url;
@@ -161,14 +168,14 @@ ${oauth.enabled ? `<h2>Как подключить</h2>
 <ol><li><b>ChatGPT</b>: Settings → Apps → Create app, вставь адрес, Authentication: OAuth.</li>
 <li><b>Claude</b>: Settings → Connectors → Add custom connector, тот же адрес.</li>
 <li>Откроется окно входа: войди ключом доступа (Face ID, Touch ID или PIN) и нажми «Разрешить».</li></ol>
-<p class="muted">Аккаунт и подключённые приложения: <a href="${esc(oauth.ISSUER)}/account">${esc(new URL(oauth.ISSUER).host)}</a>. Лимит в сутки: ${QUOTA.calls} вызовов, ${QUOTA.video} видео, ${QUOTA.photo} фото. Мы считаем анонимную статистику использования (какие инструменты вызываются), без фото, списков деталей и личных данных. Картинки и видео хранятся ${Number(process.env.LEGO_MEDIA_DAYS || 30)} дней.</p>`
+<p class="muted">Аккаунт и подключённые приложения: <a href="${esc(oauth.ISSUER)}/account">${esc(new URL(oauth.ISSUER).host)}</a>. Лимит в сутки: ${QUOTA.calls} вызовов, ${QUOTA.video} видео, ${QUOTA.photo} фото. Мы считаем анонимную статистику использования (какие инструменты вызываются), без фото, списков деталей и личных данных. Картинки и видео хранятся ${Number(process.env.LEGO_MEDIA_DAYS || 30)} дней. Фото готовой модели (model_analyze_photo) отправляется на анализ в Meta Model API (Muse Spark) и у нас не хранится.</p>`
     : open ? `<h2>Твоя ссылка для подключения</h2>
 <input id="u" readonly value="${esc(url)}" onclick="this.select()"><button onclick="navigator.clipboard.writeText(document.getElementById('u').value);this.textContent='Скопировано'">Скопировать</button>
 <p class="muted">Ссылка личная: в ней ключ к твоим деталям и моделям. Сохрани её, мы её не храним и восстановить не сможем. Обновишь страницу — получишь новую, с пустым набором.</p>
 <h2>Как подключить</h2>
 <ol><li><b>ChatGPT</b>: Settings → Apps → Advanced → Developer mode → Create app, URL = ссылка выше, Authentication: No Auth.</li>
 <li><b>Claude</b>: Settings → Connectors → Add custom connector, URL = ссылка выше.</li></ol>
-<p class="muted">Лимит на ключ в сутки: ${QUOTA.calls} вызовов, ${QUOTA.video} видео, ${QUOTA.photo} фото. Мы считаем анонимную статистику использования (какие инструменты вызываются), без фото, списков деталей и ключей. Картинки и видео хранятся ${Number(process.env.LEGO_MEDIA_DAYS || 30)} дней.</p>`
+<p class="muted">Лимит на ключ в сутки: ${QUOTA.calls} вызовов, ${QUOTA.video} видео, ${QUOTA.photo} фото. Мы считаем анонимную статистику использования (какие инструменты вызываются), без фото, списков деталей и ключей. Картинки и видео хранятся ${Number(process.env.LEGO_MEDIA_DAYS || 30)} дней. Фото готовой модели (model_analyze_photo) отправляется на анализ в Meta Model API (Muse Spark) и у нас не хранится.</p>`
     : '<p>Сервер работает по личному ключу владельца.</p>'}
 <p class="muted"><a href="https://github.com/elcodabra/lego-build-inventory">GitHub</a> · LEGO® is a trademark of the LEGO Group, this project is not affiliated with it.</p>
 </body></html>`;
@@ -285,7 +292,7 @@ export default async function handler(req, res) {
         else { fs.mkdirSync(path.join(dir, 'models'), { recursive: true }); fs.mkdirSync(path.join(dir, 'exports'), { recursive: true }); }
         return await core.ctx.run({ dataDir: dir, safe: true, renderer: 'node' }, async () => {
           const { buildServer } = await import('../mcp/tools.mjs');
-          srv = buildServer({ publish, mediaOrigin: MEDIA_ORIGIN, onVideo, youtubeForFilm, videoCache: MEDIA ? { get: (k) => store.filmUrlFor(k), set: (k, u) => store.rememberFilm(k, u, MEDIA_DAYS) } : null });
+          srv = buildServer({ publish, mediaOrigin: MEDIA_ORIGIN, onVideo, youtubeForFilm, metaBudgetStore: store.metaBudgetStore(), videoCache: MEDIA ? { get: (k) => store.filmUrlFor(k), set: (k, u) => store.rememberFilm(k, u, MEDIA_DAYS) } : null });
           transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
           await srv.connect(transport);
           const r = await transport.handleRequest(webRequest(req, body), { parsedBody: body });
