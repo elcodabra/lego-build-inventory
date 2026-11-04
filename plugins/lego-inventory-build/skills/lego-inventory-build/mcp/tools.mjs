@@ -447,9 +447,9 @@ export function buildServer(opts) {
   // ---------------------------------------------------------------- inline player (MCP Apps)
 
   const mediaOrigin = (opts && opts.mediaOrigin) || null;
-  s.registerResource('lego-player', PLAYER_URI, { title: 'LEGO build player', mimeType: 'text/html;profile=mcp-app' }, async () => ({
+  const playerResource = (uri) => async () => ({
     contents: [{
-      uri: PLAYER_URI,
+      uri,
       mimeType: 'text/html;profile=mcp-app',
       text: fs.readFileSync(path.join(core.ROOT, 'mcp/player.html'), 'utf8'),
       _meta: {
@@ -459,7 +459,14 @@ export function buildServer(opts) {
         'openai/ui': { availableDisplayModes: ['inline', 'fullscreen'] },
       },
     }],
-  }));
+  });
+  s.registerResource('lego-player', PLAYER_URI, { title: 'LEGO build player', mimeType: 'text/html;profile=mcp-app' }, playerResource(PLAYER_URI));
+  // Older card URIs: ChatGPT keeps the tool list (with the card URI) from when the app was added,
+  // so an app connected before a card bump still asks for the old URI. Serve the current card there.
+  for (let v = 1; v <= 5; v++) {
+    const old = `ui://lego/card-v${v}.html`;
+    s.registerResource(`lego-player-v${v}`, old, { title: 'LEGO build player (older URI)', mimeType: 'text/html;profile=mcp-app' }, playerResource(old));
+  }
 
   // Film settings: the chat card plays the film at ~400 px wide, so it gets 720p at 24 fps (about
   // a third of the work of 1080p/30); the download (model_render) keeps full 1080p.

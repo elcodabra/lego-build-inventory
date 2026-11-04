@@ -8,6 +8,17 @@ A Skill plus an MCP server for Claude and ChatGPT. It designs LEGO models **only
 
 **New (Meta Global AI Developer Hackathon, Nov 2026): photograph a model you already built → take it apart, build something else.** Meta SAM 3.1 outlines the build and Meta Muse Spark 1.3 describes it and suggests which of your saved models it is; you confirm, and the card shows the exact parts list, an exploded view, reverse steps and a disassembly film from the model's real data, then new models from the same bricks (with a BrickLink wanted list for anything missing). The AI only estimates and proposes; exact instructions come only from a confirmed, saved model. Demo script, what is exact vs estimated, limits and what existed before the event (`git tag pre-hackathon`): [docs/meta-hackathon-demo.md](docs/meta-hackathon-demo.md). Code: `lib/meta.cjs`, `lib/analyze.cjs`, `lib/segment.cjs`, `lib/disassembly.cjs`, `lib/shopping.cjs`. *LEGO® is a trademark of the LEGO Group, which does not sponsor, authorize or endorse this project.*
 
+### Try it in 2 minutes (for hackathon judges)
+
+Demo video (1:20): https://youtu.be/NyjUZgB-cw8 · submitted version: git tag `hackathon-submission`.
+
+1. **Connect.** ChatGPT → Settings → Apps → Create app (developer mode), or Claude → Settings → Connectors → Add custom connector. URL `https://lego-mcp.vercel.app/mcp`, auth OAuth. Sign in with a passkey (no password, no e-mail).
+2. **Take a built model apart.** Ask: *"Use the LEGO app in English: show me how to take apart the built-in cat model, then what else I can build from its parts."* You get the card with the exact parts list, Build/Disassemble toggle, exploded view, reverse steps, a disassembly film and the rebuild ideas.
+3. **Photo of a built model (Meta Muse Spark 1.3 + SAM 3.1).** Upload a photo and ask *"What is this model and how do I take it apart?"* SAM 3.1 outlines the model, Muse Spark describes it and proposes matches from your saved models only; press confirm for the exact data. A build the app does not know gets an honest "no match" and how to add it.
+4. **Rebuild.** Press *Rebuild* in the card: new models from the same bricks; ideas that are close come with a BrickLink wanted list.
+
+Cost per photo: about 1 cent of Meta API (Muse ~$0.006 + SAM ~$0.005), capped by a shared daily budget.
+
 ```
 📷 photo of one part  → Brickognize (part number + colour) ─┐
 📷 photo of a pile    → Claude/ChatGPT reads it by eye → CSV ─┼→ inventory → ideas_suggest → idea_build → preview / mp4
