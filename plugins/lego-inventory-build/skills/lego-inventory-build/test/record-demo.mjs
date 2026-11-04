@@ -143,6 +143,21 @@ const frame = (i) => p.frameLocator('iframe').nth(i);
 // every click in the card gets a soft 'land' sound
 const click = async (i, sel) => { cue('land'); await frame(i).locator(sel).first().click(); };
 const showTop = (i) => p.evaluate((n) => { const f = window.frames_[n]; f.parentElement.scrollIntoView({ block: 'start' }); }, i);
+// DEMO_LONG=1: the ~2 min cut for the submission (explainer slides, more steps, longer film)
+const LONG = process.env.DEMO_LONG === '1';
+const slide = async (title, lines, ms) => {
+  await p.evaluate(({ title, lines }) => {
+    const d = document.createElement('div'); d.id = 'slide';
+    d.style.cssText = 'position:fixed;inset:0;z-index:50;background:#101418;color:#fff;display:flex;flex-direction:column;justify-content:center;padding:0 120px;font:28px/1.5 Inter,system-ui,sans-serif';
+    d.innerHTML = `<div style="font-size:44px;font-weight:700;margin-bottom:28px;color:#FFD21A">${title}</div>` + lines.map((l) => `<div style="margin:8px 0">${l}</div>`).join('');
+    document.body.appendChild(d); document.getElementById('cap').hidden = true;
+  }, { title, lines });
+  cue('intro');
+  const start = now();
+  await wait(ms);
+  subs.push({ start, end: now(), text: title });
+  await p.evaluate(() => document.getElementById('slide').remove());
+};
 const imgReady = async (i, sel) => frame(i).locator(sel).evaluate((im) => (im.decode ? im.decode() : null), null, { timeout: 5000 }).catch(() => {});
 
 // ---- scene 1: a real photo of an unknown build -> honest no match + how to add a model
@@ -159,6 +174,17 @@ await p.evaluate((n) => { const f = window.frames_[n]; f.parentElement.scrollInt
 // then down to the description and the "no match" block below the overlay
 await p.evaluate(() => document.getElementById('chat').scrollBy(0, 330));
 await caption('Unknown build: <b>no match</b>, so no made-up steps.');
+if (LONG) {
+  await caption('One photo cannot see <b>hidden bricks</b>. Guessed instructions would be wrong.');
+  await slide('How it works', [
+    '1. Photo (up to 3 angles) in ChatGPT or Claude',
+    '2. <b>Meta SAM 3.1</b> outlines the model and the visible bricks',
+    '3. <b>Muse Spark 1.3</b>, structured output, picks only from <b>your saved models</b>',
+    '4. <b>You confirm</b>. No confirmation, no instructions',
+    '5. Exact parts, exploded view, reverse steps, film, from the model data',
+    '6. Same bricks → new models; missing parts → BrickLink list',
+  ], 9000);
+}
 
 // ---- scene 2: a known model -> confirm -> exact data
 await user('And this one?', catUrl);
@@ -182,7 +208,8 @@ await frame(i2).locator('#next').waitFor({ timeout: 60000 });
 await imgReady(i2, '#stepimg');
 await showTop(i2);
 await caption('Disassembly: parts to remove next are outlined.');
-for (let k = 0; k < 4; k++) { await click(i2, '#next'); await imgReady(i2, '#stepimg'); await wait(350); }
+if (LONG) await caption('Each step: <b>which parts come off next</b>, and how many are left.');
+for (let k = 0; k < (LONG ? 8 : 4); k++) { await click(i2, '#next'); await imgReady(i2, '#stepimg'); await wait(350); }
 await click(i2, 'button[data-dir=build]');
 await frame(i2).locator('button[data-dir=build][aria-pressed=true]').waitFor({ timeout: 60000 });
 await imgReady(i2, '#stepimg');
@@ -197,7 +224,7 @@ await frame(i2).locator('video').evaluate((v) => new Promise((ok) => { if (v.rea
 await frame(i2).locator('video').evaluate((v) => { v.muted = true; v.currentTime = Math.max(0, v.duration - 9); return v.play(); }).catch(() => {});
 await showTop(i2);
 await caption('<b>Disassembly film</b>: the build played backwards, part by part.');
-await wait(3000);
+await wait(LONG ? 7000 : 3000);
 
 // ---- scene 3c: rebuild from the same parts
 await click(i2, 'button[data-rebuild]');
@@ -219,6 +246,21 @@ await caption(`Cat → <b>${rebuildIdeas.structuredContent.ideas[0].title}</b>, 
 await p.evaluate((n) => window.frames_[n].parentElement.scrollIntoView({ block: 'start' }), i1);
 await frame(i1).locator('.add').evaluate((el) => { el.style.outline = '3px solid #FFD21A'; el.style.outlineOffset = '3px'; });
 await caption('<b>Add models:</b> snap your loose bricks for build ideas, or describe one.');
+if (LONG) {
+  await slide('Under the hood', [
+    'Muse Spark and SAM 3.1 run <b>in parallel</b>; fallback 1.3 → 1.2; output re-checked with Zod',
+    'Model names limited to an <b>allowlist</b> of the user\'s models: AI never invents geometry',
+    'Disassembly with tested invariants: full → empty, same parts list both ways',
+    '<b>~1 cent per photo</b> (Muse ~$0.006 + SAM ~$0.005); spend cap shared in Redis',
+    'Live MCP server for ChatGPT and Claude: OAuth, quotas, no photos in logs',
+    'Honest limits: positive match shown on a render; real photo → no match',
+  ], 10000);
+  await slide('Who it is for', [
+    'Families with a box of mixed bricks and half-forgotten builds',
+    'Take any saved build apart cleanly, then turn it into something new',
+    'Try it: <b>lego-mcp.vercel.app/mcp</b> · code on GitHub: elcodabra/lego-build-inventory',
+  ], 7000);
+}
 cue('done');
 await caption('Real Meta API · you confirm · exact data. <b>LEGO from My Bricks</b>');
 const total = now();
