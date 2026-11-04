@@ -110,6 +110,21 @@ analytics, hosting. New in the hackathon (branch `feat/meta-hackathon-reverse-bu
 - Diff vs pre-hackathon: `https://github.com/elcodabra/lego-build-inventory/compare/pre-hackathon...feat/meta-hackathon-reverse-build`
   (live)
 
+## Real form fields (checked Nov 4) → what to paste
+
+- Team Name: `LEGO from My Bricks` (team member: Aleksandr Konovalov, already listed)
+- Track: Indie Developer Track · Problem statement: Build for Your World
+- Project Description: "Short description" above + "What it does" list
+- Public GitHub Repository: https://github.com/elcodabra/lego-build-inventory (work merged into `main`)
+- 3-Minute Demo Video: https://youtu.be/D9MULCBiJT8
+- Describe your use of Meta products: the "How Meta models are used" section (table as plain text)
+- Why are Meta's models important: "Muse Spark reads a photo of a physical build and, with structured
+  output constrained to the user's own model list, turns it into a safe pointer to exact data; SAM 3.1
+  shows the user what was seen. Together they make a physical object addressable without ever inventing
+  geometry. Both run in parallel for about one cent per photo, so it can be a free family tool."
+- Partner feedback (optional): we did not use Baseten/Modal/Fireworks; leave empty or say so.
+- Survey questions (likelihood, opinion, NPS, obstacles, comparison): owner's personal answers.
+
 ## Checklist before pressing Submit (owner)
 
 - [ ] Sign in to Cerebral Valley; open the submit form; compare its fields with this file.
