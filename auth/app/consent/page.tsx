@@ -25,8 +25,8 @@ export default async function Consent({ searchParams }: { searchParams: Promise<
   if (!user) {
     return (
       <div className="card">
-        <h1>Вход</h1>
-        <p>{who} хочет подключиться к вашим деталям LEGO. Войдите, чтобы продолжить.</p>
+        <h1>Sign in · Вход</h1>
+        <p>{who} wants to connect to your LEGO parts. Sign in to continue. · Войдите, чтобы продолжить.</p>
         {warn}
         <Login />
       </div>
@@ -36,17 +36,17 @@ export default async function Consent({ searchParams }: { searchParams: Promise<
   const deny = decide.bind(null, req.id, false);
   return (
     <div className="card">
-      <h1>Разрешить доступ?</h1>
-      <p>{who} получит доступ к аккаунту <b>{user.name}</b>:</p>
+      <h1>Allow access? · Разрешить доступ?</h1>
+      <p>{who} will get access to the account <b>{user.name}</b>:</p>
       <ul className="perm">
-        <li>видеть и менять ваш набор деталей;</li>
-        <li>собирать, сохранять и показывать модели, делать картинки и видео сборки.</li>
+        <li>see and change your parts list · видеть и менять ваш набор деталей;</li>
+        <li>build, save and show models, make build pictures and videos · собирать и показывать модели.</li>
       </ul>
-      <p className="muted small">Отключить доступ можно в любой момент на странице аккаунта.</p>
+      <p className="muted small">You can disconnect at any time on the account page. · Отключить доступ можно на странице аккаунта.</p>
       {warn}
       <div className="row">
-        <form action={deny} style={{ flex: 1 }}><button className="btn" type="submit" data-testid="deny">Отмена</button></form>
-        <form action={allow} style={{ flex: 1 }}><button className="btn primary" type="submit" data-testid="allow">Разрешить</button></form>
+        <form action={deny} style={{ flex: 1 }}><button className="btn" type="submit" data-testid="deny">Cancel · Отмена</button></form>
+        <form action={allow} style={{ flex: 1 }}><button className="btn primary" type="submit" data-testid="allow">Allow · Разрешить</button></form>
       </div>
     </div>
   );

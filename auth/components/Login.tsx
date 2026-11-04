@@ -35,11 +35,11 @@ export default function Login({ addOnly = false }: { addOnly?: boolean }) {
   if (addOnly) return (<><button className="btn" disabled={busy} onClick={signUp} data-testid="add-passkey">Добавить ключ доступа</button>{err && <p className="error">{err}</p>}</>);
   return (
     <>
-      <button className="btn primary" disabled={busy} onClick={signIn} data-testid="signin">Войти с ключом доступа</button>
-      <p className="or">впервые здесь?</p>
-      <input type="text" placeholder="Как вас называть (необязательно)" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} aria-label="Имя" />
-      <button className="btn" disabled={busy} onClick={signUp} data-testid="signup">Создать аккаунт с ключом доступа</button>
-      <p className="muted small" style={{ marginTop: 10 }}>Ключ доступа — это вход по Face ID, Touch ID или PIN-коду устройства. Без паролей и почты: мы храним только публичную часть ключа.</p>
+      <button className="btn primary" disabled={busy} onClick={signIn} data-testid="signin">Sign in with a passkey · Войти с ключом доступа</button>
+      <p className="or">new here? · впервые здесь?</p>
+      <input type="text" placeholder="Your name (optional) · Как вас называть" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} aria-label="Имя" />
+      <button className="btn" disabled={busy} onClick={signUp} data-testid="signup">Create an account with a passkey · Создать аккаунт</button>
+      <p className="muted small" style={{ marginTop: 10 }}>A passkey is Face ID, Touch ID or your device PIN. No password, no e-mail: we keep only the public part of the key. · Ключ доступа — это вход по Face ID, Touch ID или PIN-коду устройства. Без паролей и почты.</p>
       {err && <p className="error" role="alert">{err}</p>}
     </>
   );
