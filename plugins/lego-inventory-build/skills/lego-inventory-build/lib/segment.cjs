@@ -148,4 +148,34 @@ async function segment({ dataUrl, budget, fetchImpl }) {
   };
 }
 
-module.exports = { segment, parseLine, SAM_USD_PER_IMAGE, MODEL };
+/**
+ * pileBoxes({ dataUrl, budget }) -> { boxes:[{x0,y0,x1,y1,c}] normalised 0..1, raw, responseId, costUsd, ms }
+ * SAM 3.1 "LEGO brick" on a photo of loose parts. Duplicates (a part and a piece of it, two
+ * overlapping masks) are removed: keep the most confident, drop any box mostly covered by a kept
+ * one, then drop boxes that swallow two or more kept parts (a merged group).
+ */
+const PILE_MIN_CONF = 0.6;
+async function pileBoxes({ dataUrl, budget, fetchImpl, minConf }) {
+  if (!meta.available()) throw new meta.MetaError('META_UNAVAILABLE', 'Meta Model API is not configured on this server');
+  meta.checkImage(dataUrl);
+  const t = Date.now();
+  const run = async () => { const r = await samCall(dataUrl, 'LEGO brick', fetchImpl); return { ...r, costUsd: SAM_USD_PER_IMAGE * r.images }; };
+  const r = budget ? await budget.run(SAM_USD_PER_IMAGE, run) : await run();
+  const recs = parseLine(r.text);
+  const th = minConf == null ? PILE_MIN_CONF : minConf;
+  const A = (b) => Math.max(1, (b.x2 - b.x1) * (b.y2 - b.y1));
+  const I = (a, b) => Math.max(0, Math.min(a.x2, b.x2) - Math.max(a.x1, b.x1)) * Math.max(0, Math.min(a.y2, b.y2) - Math.max(a.y1, b.y1));
+  const keep = [];
+  for (const x of recs.filter((q) => q.c == null || q.c >= th).sort((a, b) => (b.c || 0) - (a.c || 0))) {
+    if (keep.some((k) => I(x.box, k.box) > 0.6 * Math.min(A(x.box), A(k.box)))) continue;
+    keep.push(x);
+  }
+  const fin = keep.filter((x) => keep.filter((k) => k !== x && I(x.box, k.box) > 0.8 * A(k.box)).length < 2).slice(0, MAX_BRICKS);
+  const W = (fin[0] && fin[0].w) || 1; const H = (fin[0] && fin[0].h) || 1;
+  return {
+    boxes: fin.map((x) => ({ x0: x.box.x1 / (x.w || W), y0: x.box.y1 / (x.h || H), x1: x.box.x2 / (x.w || W), y1: x.box.y2 / (x.h || H), c: x.c })),
+    raw: recs.length, responseId: r.id, costUsd: r.costUsd, ms: Date.now() - t,
+  };
+}
+
+module.exports = { segment, pileBoxes, parseLine, SAM_USD_PER_IMAGE, MODEL };

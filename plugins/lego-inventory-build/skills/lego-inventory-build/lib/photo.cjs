@@ -712,6 +712,57 @@ async function segment(img, opts) {
   return { found: parts.length, recognised: results.filter((r) => r.id).length, items, parts: results, ...(cleanShot ? { clean: cleanShot } : {}) };
 }
 
+// Recognise the parts inside externally found boxes (e.g. Meta SAM 3.1), boxes normalised 0..1
+// as {x0,y0,x1,y1}. Same crop + recognition + counting as the classic pass.
+async function identifyBoxes(src, boxes, opts) {
+  const o = opts || {};
+  const img = await loadImage(src);
+  const { loadImage: li, createCanvas } = require('@napi-rs/canvas');
+  let im = await li(img.buf);
+  const big = Math.max(im.width, im.height);
+  if (big > 2000) {
+    const k = 2000 / big;
+    const small = createCanvas(Math.round(im.width * k), Math.round(im.height * k));
+    small.getContext('2d').drawImage(im, 0, 0, small.width, small.height);
+    im = small;
+  }
+  const crops = boxes.map((b) => {
+    const bx = b.x0 * im.width; const by = b.y0 * im.height; const bw = (b.x1 - b.x0) * im.width; const bh = (b.y1 - b.y0) * im.height;
+    const m = Math.max(6, 0.15 * Math.max(bw, bh));
+    const sx = Math.max(0, bx - m); const sy = Math.max(0, by - m);
+    const sw = Math.min(im.width - sx, bw + 2 * m); const sh = Math.min(im.height - sy, bh + 2 * m);
+    const up = Math.max(1, Math.min(3, 224 / Math.max(sw, sh)));
+    const cc = createCanvas(Math.round(sw * up), Math.round(sh * up));
+    const cx3 = cc.getContext('2d');
+    cx3.imageSmoothingQuality = 'high';
+    cx3.drawImage(im, sx, sy, sw, sh, 0, 0, cc.width, cc.height);
+    return { box: [Math.round(sx), Math.round(sy), Math.round(sw), Math.round(sh)], buf: cc.toBuffer('image/jpeg', 90) };
+  });
+  const results = [];
+  const conc = o.concurrency || 6;
+  for (let i = 0; i < crops.length; i += conc) {
+    results.push(...await Promise.all(crops.slice(i, i + conc).map(async (cr) => {
+      try {
+        const r = await identify(cr.buf);
+        return { box: cr.box, id: r.part && r.part.id, name: r.part && r.part.name, score: r.part && r.part.score, color: r.color, confident: r.confident, ...(o.keepCrops ? { crop: cr.buf, candidates: r.candidates, colors: r.colors } : {}) };
+      } catch (e) {
+        return { box: cr.box, error: e.message };
+      }
+    })));
+  }
+  const counts = new Map();
+  for (const r of results) {
+    if (!r.id || !r.color) continue;
+    const k = r.id + '|' + r.color;
+    const v = counts.get(k) || { id: r.id, color: r.color, qty: 0, name: r.name, unsure: 0 };
+    v.qty++;
+    if (!r.confident) v.unsure++;
+    counts.set(k, v);
+  }
+  const items = [...counts.values()].sort((a, b) => a.color.localeCompare(b.color) || a.id.localeCompare(b.id));
+  return { found: boxes.length, recognised: results.filter((r) => r.id).length, items, parts: results, mode: 'sam' };
+}
+
 async function identifyPile(src, opts) {
   const img = await loadImage(src);
   const o = opts || {};
@@ -761,4 +812,4 @@ async function identifyPile(src, opts) {
   return { found: Math.max(flat.found, local.found), recognised: kept.length, items, parts: kept, mode: 'merged', passes: { flat: flat.recognised, local: local.recognised }, ...(base.clean ? { clean: base.clean } : {}) };
 }
 
-module.exports = { identify, identifyPile, rankColors, loadImage };
+module.exports = { identify, identifyPile, identifyBoxes, rankColors, loadImage };
