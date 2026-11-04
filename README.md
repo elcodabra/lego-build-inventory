@@ -19,6 +19,10 @@ Demo video (1:20): https://youtu.be/NyjUZgB-cw8 · submitted version: git tag `h
 
 Cost per photo: about 1 cent of Meta API (Muse ~$0.006 + SAM ~$0.005), capped by a shared daily budget.
 
+Live in ChatGPT (real UI, Nov 4 2026): the disassembly card for the built-in cat.
+
+![The disassembly card inside ChatGPT](docs/img/chatgpt-disassemble-card.png)
+
 ```
 📷 photo of one part  → Brickognize (part number + colour) ─┐
 📷 photo of a pile    → Claude/ChatGPT reads it by eye → CSV ─┼→ inventory → ideas_suggest → idea_build → preview / mp4
