@@ -22,12 +22,15 @@ const maxUsd = Number(arg('max-usd', '1'));
 const want = arg('providers', 'meta,openai,anthropic').split(',');
 
 // USD per 1M tokens (list prices, checked 2026-11-04; Meta from lib/meta.cjs)
+const OPENAI_PRICES = { 'gpt-4.1-mini': [0.4, 1.6], 'gpt-4.1': [2, 8], 'gpt-5.6-luna': [0.2, 1.2], 'gpt-5.6-terra': [2, 12], 'gpt-5.6-sol': [4, 20], 'gpt-5.4-mini': [0.75, 4.5], 'gpt-5.5': [5, 30] };
+const OPENAI = (process.env.BENCH_OPENAI || 'gpt-4.1-mini,gpt-4.1').split(',').filter(Boolean).map((model) => ({ provider: 'openai', model, key: 'OPENAI_API_KEY', price: { input: (OPENAI_PRICES[model] || [0, 0])[0], output: (OPENAI_PRICES[model] || [0, 0])[1] } }));
+const ANTHROPIC_PRICES = { 'claude-haiku-5-5': [0.1, 0.5], 'claude-sonnet-5-5': [2, 10], 'claude-opus-5-5': [4, 20], 'claude-haiku-4-5-20251001': [1, 5] };
+const ANTHROPIC = (process.env.BENCH_ANTHROPIC || 'claude-haiku-5-5,claude-sonnet-5-5').split(',').filter(Boolean).map((model) => ({ provider: 'anthropic', model, key: 'ANTHROPIC_API_KEY', price: { input: (ANTHROPIC_PRICES[model] || [0, 0])[0], output: (ANTHROPIC_PRICES[model] || [0, 0])[1] } }));
 const META = (process.env.BENCH_META || 'muse-spark-1.3,muse-spark-1.2').split(',').filter(Boolean).map((s) => { const [model, effort] = s.split('@'); return { provider: 'meta', model, effort, key: 'MODEL_API_KEY', label: effort ? `${model}@${effort}` : model }; });
 const MODELS = [
   ...META,
-  { provider: 'openai', model: process.env.BENCH_OPENAI_MODEL || 'gpt-4.1-mini', key: 'OPENAI_API_KEY', price: { input: 0.4, output: 1.6 } },
-  { provider: 'openai', model: process.env.BENCH_OPENAI_MODEL2 || 'gpt-4.1', key: 'OPENAI_API_KEY', price: { input: 2, output: 8 } },
-  { provider: 'anthropic', model: process.env.BENCH_ANTHROPIC_MODEL || 'claude-haiku-4-5', key: 'ANTHROPIC_API_KEY', price: { input: 1, output: 5 } },
+  ...OPENAI,
+  ...ANTHROPIC,
 ].filter((m) => want.includes(m.provider) && process.env[m.key]).map((m) => ({ label: m.model, ...m }));
 for (const m of MODELS) if (m.provider === 'meta' && meta.PRICES[m.model] && meta.PRICES[m.model].contributor) { console.error(m.model + ' is Contributor mode (Meta may train on inputs): not used in the benchmark'); process.exit(1); }
 
@@ -72,7 +75,7 @@ for (const c of cases) pics[c.file] = await an.preparePhoto(c.file);
 async function callOpenAI(m, dataUrl) {
   const r = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST', headers: { authorization: 'Bearer ' + process.env.OPENAI_API_KEY, 'content-type': 'application/json' },
-    body: JSON.stringify({ model: m.model, input: [{ role: 'user', content: [{ type: 'input_text', text }, { type: 'input_image', image_url: dataUrl }] }], text: { format: { type: 'json_schema', name: 'lego_photo_analysis', schema, strict: true } }, max_output_tokens: 1500 }),
+    body: JSON.stringify({ model: m.model, input: [{ role: 'user', content: [{ type: 'input_text', text }, { type: 'input_image', image_url: dataUrl }] }], text: { format: { type: 'json_schema', name: 'lego_photo_analysis', schema, strict: true } }, max_output_tokens: 4000, ...(/^(gpt-5|o\d)/.test(m.model) ? { reasoning: { effort: 'low' } } : {}) }),
     signal: AbortSignal.timeout(90000),
   });
   const j = await r.json();
@@ -84,15 +87,15 @@ async function callAnthropic(m, dataUrl) {
   const [, mime, b64] = dataUrl.match(/^data:([^;]+);base64,(.*)$/);
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST', headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({ model: m.model, max_tokens: 1500, tools: [{ name: 'report', description: 'Report the analysis', input_schema: schema }], tool_choice: { type: 'tool', name: 'report' },
+    body: JSON.stringify({ model: m.model, max_tokens: 4000, output_config: { format: { type: 'json_schema', schema } },
       messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: mime, data: b64 } }, { type: 'text', text }] }] }),
     signal: AbortSignal.timeout(90000),
   });
   const j = await r.json();
   if (!r.ok) throw new Error('anthropic ' + r.status + ' ' + (j.error && j.error.message || '').slice(0, 120));
-  const tu = (j.content || []).find((c) => c.type === 'tool_use');
+  const tb = (j.content || []).find((c) => c.type === 'text');
   const u = j.usage || {};
-  return { json: tu ? tu.input : null, inTok: u.input_tokens, outTok: u.output_tokens, usd: (u.input_tokens * m.price.input + u.output_tokens * m.price.output) / 1e6 };
+  return { json: tb ? JSON.parse(tb.text) : null, inTok: u.input_tokens, outTok: u.output_tokens, usd: (u.input_tokens * m.price.input + u.output_tokens * m.price.output) / 1e6 };
 }
 async function callMeta(m, dataUrl) {
   const r = await meta.respond({ model: m.model, effort: m.effort, schema, schemaName: 'lego_photo_analysis', input: [{ role: 'user', content: [{ type: 'input_text', text }, { type: 'input_image', image_url: dataUrl }] }] });
