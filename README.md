@@ -19,6 +19,8 @@ Demo video (1:20): https://youtu.be/NyjUZgB-cw8 · submitted version: git tag `h
 
 Cost per photo: about 1 cent of Meta API (Muse ~$0.006 + SAM ~$0.005), capped by a shared daily budget.
 
+**Benchmarks** ([docs/benchmarks.md](docs/benchmarks.md)): with 12 look-alike saved models, Muse Spark 1.3 picks the right one 15/16 (1.2: 14/16, 1.1: 12/16), never invents a model and says "no match" for 3/3 real photos of unknown builds; 100% schema-valid JSON over 112 calls. Card after confirm: 0.44 s p50 on production.
+
 Live in ChatGPT (real UI, Nov 4 2026): the disassembly card for the built-in cat.
 
 ![The disassembly card inside ChatGPT](docs/img/chatgpt-disassemble-card.png)
