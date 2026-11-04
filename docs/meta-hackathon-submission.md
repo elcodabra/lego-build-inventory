@@ -106,7 +106,7 @@ analytics, hosting. New in the hackathon (branch `feat/meta-hackathon-reverse-bu
 - Live MCP server: https://lego-mcp.vercel.app/mcp (connect in ChatGPT / Claude)
 - Code: https://github.com/elcodabra/lego-build-inventory, branch `feat/meta-hackathon-reverse-build`
   (pushed)
-- Video (0:43, unlisted on YouTube): https://youtu.be/D9MULCBiJT8
+- Video (1:20, unlisted, use this one): https://youtu.be/NyjUZgB-cw8 · short cut (0:43): https://youtu.be/D9MULCBiJT8
 - Diff vs pre-hackathon: `https://github.com/elcodabra/lego-build-inventory/compare/pre-hackathon...feat/meta-hackathon-reverse-build`
   (live)
 
@@ -116,7 +116,7 @@ analytics, hosting. New in the hackathon (branch `feat/meta-hackathon-reverse-bu
 - Track: Indie Developer Track · Problem statement: Build for Your World
 - Project Description: "Short description" above + "What it does" list
 - Public GitHub Repository: https://github.com/elcodabra/lego-build-inventory (work merged into `main`)
-- 3-Minute Demo Video: https://youtu.be/D9MULCBiJT8
+- 3-Minute Demo Video: https://youtu.be/NyjUZgB-cw8
 - Describe your use of Meta products: the "How Meta models are used" section (table as plain text)
 - Why are Meta's models important: "Muse Spark reads a photo of a physical build and, with structured
   output constrained to the user's own model list, turns it into a safe pointer to exact data; SAM 3.1
