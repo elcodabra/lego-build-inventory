@@ -14,6 +14,8 @@ Photos: 13 renders of saved models from new angles (cat, microduck, cottage ×3 
 robot, spaceship ×1) and 3 real iPhone photos of builds the app does not know (correct answer: no match).
 Renders are labelled as renders; the "no match" photos are real.
 
+![Benchmark chart](img/benchmark.png)
+
 | Model (reasoning effort) | Accuracy | Known models | Unknown → no match | Valid JSON | p50 latency | p90 latency | Cost / photo |
 |---|---|---|---|---|---|---|---|
 | claude-opus-5-5 | **16/16** | 13/13 | 3/3 | 16/16 | 5.0 s | 6.1 s | $0.0177 |

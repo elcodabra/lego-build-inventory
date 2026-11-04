@@ -21,6 +21,8 @@ Cost per photo: about 1 cent of Meta API (Muse ~$0.006 + SAM ~$0.005), capped by
 
 **Benchmarks** ([docs/benchmarks.md](docs/benchmarks.md)): 11 vision models, same prompt and schema, 12 look-alike saved models. Muse Spark 1.3 picks the right one 15/16, second only to Claude Opus 5.5 (16/16) at about a third of its cost, ahead of Claude Sonnet 5.5 (14/16), GPT-4.1 (13/16) and GPT-5.6 Sol (11/16). No model invented a model or matched an unknown build (3/3 real photos); 100% schema-valid JSON over 256 calls. Card after confirm: 0.44 s p50 on production.
 
+![Benchmark: 11 vision models on the same task](docs/img/benchmark.png)
+
 Live in ChatGPT (real UI, Nov 4 2026): the disassembly card for the built-in cat.
 
 ![The disassembly card inside ChatGPT](docs/img/chatgpt-disassemble-card.png)
