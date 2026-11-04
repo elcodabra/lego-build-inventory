@@ -1,6 +1,6 @@
 # Submission pack: LEGO from My Bricks
 
-Meta Global AI Developer Hackathon · DRAFT, not submitted. Submit only after the owner's explicit OK.
+Meta Global AI Developer Hackathon · SUBMITTED by the owner on Nov 4, 2026 (~12:08 CET).
 
 Deadline: **Nov 4, 9:00 PM ET = Nov 5, 03:00 CET**. Internal freeze: Nov 4, 18:00 CET.
 Form: https://cerebralvalley.ai/e/meta-ai-developer-hackathon/hackathon/submit (needs sign-in; the
