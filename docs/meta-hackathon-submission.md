@@ -110,6 +110,13 @@ analytics, hosting. New in the hackathon (branch `feat/meta-hackathon-reverse-bu
 - Diff vs pre-hackathon: `https://github.com/elcodabra/lego-build-inventory/compare/pre-hackathon...feat/meta-hackathon-reverse-build`
   (live)
 
+## After submission (Nov 4)
+
+- Form updated: benchmark paragraph in "Why are Meta's models important", X post in "Most Viral Track".
+- X: https://x.com/elcodabra/status/2118004022670139402 (+ reply with the benchmark). LinkedIn post published.
+- Benchmark of 11 vision models: [benchmarks.md](benchmarks.md), chart `img/benchmark.png`.
+- Fix shipped: card served under older `ui://lego/card-v1..v5.html` URIs (ChatGPT apps added earlier).
+
 ## Real form fields (checked Nov 4) → what to paste
 
 - Team Name: `LEGO from My Bricks` (team member: Aleksandr Konovalov, already listed)
