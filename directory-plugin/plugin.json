@@ -1,0 +1,93 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "my-bricks-builder",
+  "version": "1.0.0",
+  "description": "Suggests models to build from the bricks you own (LEGO or DUPLO) and draws step-by-step instructions.",
+  "author": { "name": "elcodabra", "url": "https://github.com/elcodabra/lego-build-inventory" },
+  "homepage": "https://lego-mcp.vercel.app/mcp",
+  "repository": "https://github.com/elcodabra/lego-build-inventory",
+  "license": "MIT",
+  "keywords": ["bricks", "building", "instructions", "kids", "duplo"],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "My Bricks Builder",
+        "shortDescription": "Build ideas from your bricks",
+        "longDescription": "Tell My Bricks Builder which bricks you have (a photo of the pile, a parts list or set numbers) and it suggests models you can build right now from exactly those parts, then draws step-by-step instructions in the style of a printed booklet, with a short build video on request. Every model is checked: nothing floats, nothing overlaps, and every part is one you own. Ideas that are almost buildable come with the exact list of missing parts. DUPLO works too: a house, a tower and a pyramid at real DUPLO scale. You can also take apart a saved model step by step and rebuild something new from its parts.\n\nFor families and kids with a box of mixed bricks and no instructions. Limits: part recognition from photos can make mistakes (you can correct the list); the app only draws common bricks, plates, slopes and a few special parts; daily limits apply (300 tool calls, 10 videos, 40 photos per account). Free, no ads. Not affiliated with, sponsored or endorsed by the LEGO Group.",
+        "developerName": "elcodabra",
+        "category": "Education",
+        "capabilities": ["Read your parts list", "Update your parts list", "Suggest and draw models", "Render build videos"],
+        "websiteURL": "https://github.com/elcodabra/lego-build-inventory",
+        "supportURL": "https://github.com/elcodabra/lego-build-inventory/issues",
+        "privacyPolicyURL": "https://lego-mcp.vercel.app/privacy.html",
+        "termsOfServiceURL": "https://lego-mcp.vercel.app/terms.html",
+        "defaultPrompt": [
+          "What can I build from my bricks? Here is a photo of my pile.",
+          "I have sets 31058 and 10696, what can I build from them?",
+          "I have DUPLO bricks: 20 red 2x4 and 10 blue 2x2. What can my toddler build?"
+        ],
+        "brandColor": "#B8860B",
+        "brandColorDark": "#FFD21A",
+        "composerIcon": "./assets/icon.png",
+        "logo": "./assets/logo.png"
+      },
+      "onboardingSkill": "./skills/get-started/SKILL.md",
+      "review": {
+        "test_cases": {
+          "positive": [
+            {
+              "description": "Ideas from a typed parts list",
+              "prompt": "My parts are 10 red 2x4 bricks (3001), 8 white 2x2 bricks (3003), 6 blue 2x2 slopes (3039) and 2 green 4x6 plates (3032). What can I build?",
+              "tools_triggered": "inventory_import, ideas_suggest",
+              "expected_behavior": "The parts are saved to the account and a card shows pictures of models buildable from exactly these parts, plus ideas that are close with the exact missing parts."
+            },
+            {
+              "description": "Build the chosen idea with step pictures",
+              "prompt": "Build the house and show me the steps.",
+              "tools_triggered": "idea_build, show_build",
+              "expected_behavior": "A card with the house drawn from the user's parts, the parts list and step-by-step pictures. Only parts the user owns are used."
+            },
+            {
+              "description": "Ideas from owned sets",
+              "prompt": "I own LEGO sets 31058 and 10696. What can I build from them?",
+              "tools_triggered": "inventory_add_set, ideas_suggest",
+              "expected_behavior": "The parts of both sets are added and a card with buildable ideas is shown."
+            },
+            {
+              "description": "DUPLO bricks",
+              "prompt": "Clear my parts. I have DUPLO: 20 red 3011, 10 blue 3437, 6 red 4199, 1 bright green 4672 and 10 blue 6474. What can my toddler build?",
+              "tools_triggered": "inventory_clear, inventory_import, ideas_suggest",
+              "expected_behavior": "Only DUPLO ideas are offered (DUPLO house, tower, pyramid), drawn at DUPLO scale. No LEGO ideas are mixed in."
+            },
+            {
+              "description": "Take apart a saved model and rebuild",
+              "prompt": "Show me how to take apart the built-in cat model, then what else I can build from its parts.",
+              "tools_triggered": "model_disassemble, ideas_suggest",
+              "expected_behavior": "A card with the cat's exact parts list, an exploded view and reverse steps, then ideas built from the cat's parts."
+            }
+          ],
+          "negative": [
+            {
+              "description": "Buying sets or prices are out of scope",
+              "prompt": "Buy me the LEGO Millennium Falcon set and tell me the cheapest price."
+            },
+            {
+              "description": "Official instructions for a set are not provided",
+              "prompt": "Give me the official building instructions PDF for set 75192."
+            },
+            {
+              "description": "Unrelated request",
+              "prompt": "Write my history homework essay about the French Revolution."
+            }
+          ]
+        },
+        "demo_recording_url": "https://youtu.be/NyjUZgB-cw8",
+        "commerce": false,
+        "commerce_description": "The app does not sell products or process payments. For ideas that are close, it lists the missing part numbers (and a BrickLink wanted list) for the user's information only."
+      },
+      "publication": {
+        "release_notes": "Initial release: ideas from your own bricks (photo, parts list or set numbers), checked models, booklet-style steps and build videos, take-apart and rebuild, DUPLO support."
+      }
+    }
+  }
+}
