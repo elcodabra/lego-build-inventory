@@ -21,7 +21,7 @@ Everything the submission form asks for, in one place. Submit at platform.openai
 
 - **Name:** My Bricks Builder
 - **Subtitle (short description):** What to build from the bricks you own, with step-by-step instructions
-- **Category:** Education / Kids & family (alternative: Lifestyle)
+- **Category:** Education & Research
 - **Description:**
   Tell the app which bricks you have (a photo of the pile, a parts list or set numbers) and it suggests models you can build right now from exactly those parts, then draws step-by-step instructions in the style of a printed booklet, with a short build video on request. Every model is checked: nothing floats, nothing overlaps, and every part is one you own. Ideas that are almost buildable come with the exact list of missing parts. Works with DUPLO too: a house, a tower and a pyramid at real DUPLO scale. You can also photograph a model you already built and get the exact way to take it apart and rebuild something new. Free, no ads. Not affiliated with the LEGO Group.
 - **Website:** https://github.com/elcodabra/lego-build-inventory
