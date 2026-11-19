@@ -193,3 +193,8 @@ node test/chatgpt-sim.mjs "https://<app>/mcp?key=<key>" <photo URL>...    # phot
 node test/chatgpt-flow.mjs "https://<app>/mcp?key=<key>" pile.csv --render # pile → ideas → build → preview → video
 vercel logs --follow --json | grep '"ev"'                                  # which tools ChatGPT calls, time taken, errors
 ```
+
+
+## Market validation and competitive research (November 2026)
+
+See [Mister Blocks competitor analysis & validation plan](docs/market-validation-mister-blocks.md) for sourced Product Hunt/Reddit/traffic evidence, Brickit category-scale signals, product gap analysis, instrumentation and privacy requirements, unit-economics tests, and prioritized agent work orders (RESEARCH-01 through VALIDATION-01). Figures are directional and do **not** establish competitor revenue or product-market fit.
