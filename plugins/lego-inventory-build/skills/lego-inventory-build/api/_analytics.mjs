@@ -7,6 +7,9 @@
 // URLs or the key itself.
 const ENDPOINT = process.env.AMPLITUDE_ENDPOINT || 'https://api2.amplitude.com/2/httpapi'; // EU: https://api.eu.amplitude.com/2/httpapi
 
+// LEGO or DUPLO, from an idea id (DUPLO ideas are named duplo*)
+const sysOf = (idea) => (typeof idea === 'string' ? (/^duplo/i.test(idea) ? 'duplo' : 'lego') : undefined);
+
 export function clientOf(ua, body) {
   const info = body && !Array.isArray(body) && body.method === 'initialize' && body.params && body.params.clientInfo;
   const s = `${(info && info.name) || ''} ${ua || ''}`.toLowerCase();
@@ -29,7 +32,7 @@ function resultFacts(tool, payload) {
     if (sc && typeof sc === 'object') {
       if (sc.kind === 'ideas') {
         const list = Array.isArray(sc.ideas) ? sc.ideas : [];
-        return { buildable: list.length, almost: Array.isArray(sc.almost) ? sc.almost.length : 0, top_idea: list[0] && list[0].idea, top_uses_percent: list[0] && list[0].usesPercent, drawable_parts: sc.drawableParts, thumbs: list.filter((x) => x.thumbUrl).length };
+        return { system: sysOf(list[0] && list[0].idea), buildable: list.length, almost: Array.isArray(sc.almost) ? sc.almost.length : 0, top_idea: list[0] && list[0].idea, top_uses_percent: list[0] && list[0].usesPercent, drawable_parts: sc.drawableParts, thumbs: list.filter((x) => x.thumbUrl).length };
       }
       if (sc.disassembly) return { model: sc.name, parts: sc.parts, steps: sc.steps, mode: sc.mode, direction: 'disassemble', exploded: !!(sc.disassembly.explodedRendered || sc.disassembly.explodedUrl), step_images: Array.isArray(sc.stepUrls) ? sc.stepUrls.length : 0 };
       return { model: sc.name, parts: sc.parts, steps: sc.steps, mode: sc.mode, has_video: !!sc.videoUrl, ...(sc.mode === 'video' ? { pile_intro: !!sc.pileIntro } : {}) };
@@ -37,10 +40,10 @@ function resultFacts(tool, payload) {
     const t = r.content && r.content[0] && r.content[0].type === 'text' ? r.content[0].text : '';
     if (!t || t[0] !== '{') return {};
     const o = JSON.parse(t);
-    if (tool === 'idea_build') return { idea: o.name, parts: o.parts, steps: o.steps, ok: o.ok, missing: Array.isArray(o.missing) ? o.missing.length : undefined };
+    if (tool === 'idea_build') return { system: sysOf(o.name), idea: o.name, parts: o.parts, steps: o.steps, ok: o.ok, missing: Array.isArray(o.missing) ? o.missing.length : undefined };
     if (tool === 'ideas_suggest') {
       const b = o.buildable || [];
-      return { buildable: b.length, almost: (o.almost || o.close || []).length, top_idea: b[0] && b[0].idea, top_uses_percent: b[0] && b[0].usesPercent, drawable_parts: o.drawableParts };
+      return { system: sysOf(b[0] && b[0].idea), buildable: b.length, almost: (o.almost || o.close || []).length, top_idea: b[0] && b[0].idea, top_uses_percent: b[0] && b[0].usesPercent, drawable_parts: o.drawableParts };
     }
     if (tool === 'parts_from_pile_photo' || tool === 'parts_from_photo') return { recognised: Array.isArray(o.results) ? o.results.length : (o.totalParts ?? o.total), added: o.added, pile_mode: o.mode, replaced_previous: o.replacedPrevious ? true : undefined };
     if (tool === 'inventory_undo') return { restored: !!o.restored, total_parts: o.totalParts };

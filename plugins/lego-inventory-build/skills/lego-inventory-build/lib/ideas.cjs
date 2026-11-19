@@ -282,6 +282,7 @@ const L_ = () => core.LEGO;
 function dropInfo(id) {
   const d = L_().LIB[id];
   if (!d) return null;
+  if (d.duplo) return null; // DUPLO is built by its own generators (lib/duplo.cjs), never mixed in
   if (['4180c01', '3170', '55981', '93594', '3673', '2780', '43093', '35809', '42003', '32316', '2391', '40490', '70646', '22889'].includes(id)) return null;
   if (!Number.isInteger(d.w) || !Number.isInteger(d.d)) return null;
   const plates = Math.round(d.h / core.LEGO.PLATE);
@@ -1080,6 +1081,7 @@ const GENERATORS = {
     },
   },
 };
+require('./duplo.cjs')(GENERATORS, { need, Fail, order, oneColor });
 
 // ------------------------------------------------------------------ public API
 
@@ -1126,9 +1128,14 @@ function suggest(inv, opts) {
   const o = opts || {};
   const items = inv.items || inv;
   const have = items.filter((x) => core.drawable(x.id)).reduce((a, x) => a + x.qty, 0);
+  // only the system the user has: DUPLO ideas for DUPLO bricks, LEGO ideas for LEGO bricks
+  const isDuplo = (x) => core.drawable(x.id) && core.LEGO.LIB[x.id].duplo;
+  const hasDuplo = items.some((x) => x.qty > 0 && isDuplo(x));
+  const hasLego = items.some((x) => x.qty > 0 && core.drawable(x.id) && !isDuplo(x));
   const buildable = [];
   const almost = [];
   for (const [id, g] of Object.entries(GENERATORS)) {
+    if (g.duplo ? !hasDuplo : !hasLego) continue;
     let done = null;
     for (let i = 0; i < g.sizes.length && !done; i++) {
       const r = run(id, items, i, false);
@@ -1169,7 +1176,7 @@ const list = () => Object.entries(GENERATORS).map(([id, g]) => ({ idea: id, titl
 
 // English titles of the generated ideas: build videos are in English (the YouTube channel is), the
 // chat keeps the Russian titles. Matched by the Russian title a saved model carries.
-const EN_TITLES = { 'Космодром': 'Spaceport', 'Космический корабль': 'Spaceship', 'Домик': 'House', 'Дерево': 'Tree', 'Грибок': 'Mushroom', 'Ракета': 'Rocket', 'Робот': 'Robot', 'Башня': 'Tower', 'Сердечко': 'Heart', 'Пирамида': 'Pyramid', 'Пожарная машина': 'Fire truck', 'Луноход': 'Moon rover', 'Котик': 'Cat', 'Уточка': 'Duck' };
+const EN_TITLES = { 'Космодром': 'Spaceport', 'Космический корабль': 'Spaceship', 'Домик': 'House', 'Дерево': 'Tree', 'Грибок': 'Mushroom', 'Ракета': 'Rocket', 'Робот': 'Robot', 'Башня': 'Tower', 'Сердечко': 'Heart', 'Пирамида': 'Pyramid', 'Пожарная машина': 'Fire truck', 'Луноход': 'Moon rover', 'Котик': 'Cat', 'Уточка': 'Duck', 'DUPLO домик': 'DUPLO house', 'DUPLO башня': 'DUPLO tower', 'DUPLO пирамида': 'DUPLO pyramid' };
 // A custom model the agent named in Russian: a known title is translated, anything else is
 // transliterated, so an English video never shows Cyrillic.
 const TR = { а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z', и: 'i', й: 'y', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f', х: 'kh', ц: 'ts', ч: 'ch', ш: 'sh', щ: 'shch', ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya' };

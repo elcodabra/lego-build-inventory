@@ -49,6 +49,12 @@ const b = await connect('Zz9-' + 'qwertyuiopasdfghjklzxcvb' + Date.now().toStrin
 await a.callTool({ name: 'inventory_import', arguments: { data: 'part,color,qty\n3001,red,10\n3003,white,8', replace: true } });
 const bi = (await b.callTool({ name: 'inventory_show', arguments: {} })).content[0].text;
 assert.ok(/empty/i.test(bi) && !bi.includes('3001')); ok('open users do not see each other\'s parts');
+// DUPLO: user b imports DUPLO bricks, gets DUPLO ideas only
+await b.callTool({ name: 'inventory_import', arguments: { data: 'part,color,qty\n3011,red,20\n3437,blue,10\n4199,red,6\n2300,red,6\n4672,brightGreen,1\n6474,blue,10', replace: true } });
+const ds = JSON.parse((await b.callTool({ name: 'ideas_suggest', arguments: {} })).content[0].text);
+assert.ok(ds.buildable.length >= 3 && ds.buildable.every((x) => /^duplo/.test(x.idea))); ok('DUPLO parts -> DUPLO ideas: ' + ds.buildable.map((x) => x.idea).join(', '));
+const db = JSON.parse((await b.callTool({ name: 'idea_build', arguments: { idea: 'duploHouse' } })).content[0].text);
+assert.ok(db.parts >= 20); ok(`DUPLO house built from the parts (${db.parts} parts)`);
 
 // quota: 6 calls per day for user a (1 used), video 1
 const s = JSON.parse((await a.callTool({ name: 'ideas_suggest', arguments: {} })).content[0].text);
@@ -77,15 +83,17 @@ assert.ok(evts.every((e) => e.user_id && e.user_id.length >= 5)); ok('every even
 assert.ok(evts.some((e) => e.event_type === 'session_start' && e.event_properties.client === 'chatgpt')); ok('session_start with client=chatgpt');
 assert.ok(evts.some((e) => e.event_type === 'tool_call' && e.event_properties.client === 'claude' && e.user_id === 'owner')); ok('owner calls tagged claude');
 assert.ok(evts.some((e) => e.event_type === 'user_created')); ok('user_created on a new key');
-const ib = evts.find((e) => e.event_properties.tool === 'idea_build');
+const ib = evts.find((e) => e.event_properties.tool === 'idea_build' && e.event_properties.system === 'lego');
 assert.ok(ib && ib.event_properties.idea && ib.event_properties.parts > 0); ok(`idea_build facts: ${ib.event_properties.idea}, ${ib.event_properties.parts} parts`);
-const is = evts.find((e) => e.event_properties.tool === 'ideas_suggest');
+const is = evts.find((e) => e.event_properties.tool === 'ideas_suggest' && e.event_properties.system === 'lego');
 assert.ok(is && is.event_properties.top_idea === idea && is.event_properties.top_uses_percent > 0 && is.event_properties.drawable_parts === 18);
 ok(`ideas_suggest facts: top ${is.event_properties.top_idea} uses ${is.event_properties.top_uses_percent}% of ${is.event_properties.drawable_parts} parts`);
 assert.ok(evts.some((e) => e.event_properties.tool === 'show_build' && e.event_properties.status === 429)); ok('quota hits are tracked (429)');
 const all = JSON.stringify(sent);
 assert.ok(!all.includes(key) && !all.includes('owner-key-123')); ok('no key in analytics');
 assert.ok(!all.includes('3001') && !all.includes('blob.vercel') && !all.includes('part,color')); ok('no part lists or media URLs in analytics');
+assert.ok(evts.some((e) => e.event_properties.tool === 'idea_build' && e.event_properties.system === 'duplo' && e.event_properties.idea === 'duploHouse')); ok('DUPLO builds tracked with system=duplo');
+assert.ok(evts.some((e) => e.event_properties.tool === 'ideas_suggest' && e.event_properties.system === 'lego')); ok('LEGO suggestions tracked with system=lego');
 
 // cleanup cron needs its secret
 const { default: cleanup } = await import(process.cwd() + '/api/cleanup.mjs');

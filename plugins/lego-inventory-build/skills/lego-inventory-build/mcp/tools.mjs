@@ -38,6 +38,10 @@ Show models ONLY with show_build cards drawn from the user's parts: never add pi
 or other sets (they would not match what the user can build).
 Offer "шаги картинками" (show_build mode=steps) or "видео" (mode=video); make them only on request.
 Only if the file cannot be passed: read the photo yourself per lego_photo_guide and inventory_import.
+DUPLO works too (big toddler bricks: 3437 2x2, 3011 2x4, 2300 2x6, 4199 2x8, 31110 2x2x2, 4066 1x2x2,
+plates 40666/98233/44524/14721/25549/4672, slope 6474): import them by these BrickLink numbers and ideas_suggest
+offers DUPLO ideas (house, tower, pyramid). DUPLO and LEGO are never mixed in one model; in a custom DUPLO
+model x/y are even (one DUPLO stud = 2) and a DUPLO brick is 6 plates high.
 Workflow for a custom model: 1) inventory_show (import with inventory_import / inventory_add_set if empty).
 2) lego_guide once, to learn coordinates and rules. 3) Design a model as JSON steps using ONLY
 (part, colour) pairs from the drawable inventory; build bottom-up, bricks +3 plates, plates +1.

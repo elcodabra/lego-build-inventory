@@ -260,6 +260,11 @@ function checkGeometry(model) {
   }));
   const pinned = (i, j) => (J[i].some((a) => MALE[a.t]) || J[j].some((b) => MALE[b.t])) && jointLink(i, j);
   const problems = [];
+  // DUPLO: no mixing with LEGO bricks (a LEGO brick does not lock onto DUPLO studs the same way),
+  // and DUPLO parts sit on the DUPLO grid (x, y even: one DUPLO stud = 2 units)
+  const nDuplo = parts.filter((p) => p.def.duplo).length;
+  if (nDuplo && nDuplo < parts.length) problems.push({ type: 'mixed', message: 'MIXED    DUPLO and LEGO parts in one model: build with one system' });
+  if (nDuplo) specs.forEach((s, i) => { if (parts[i].def.duplo && (s.at[0] % 2 || s.at[1] % 2)) problems.push({ type: 'grid', message: 'GRID     ' + label(i) + ' (DUPLO x and y must be even)' }); });
   const links = B.map(() => []);
   for (let i = 0; i < B.length; i++) {
     for (let j = i + 1; j < B.length; j++) {

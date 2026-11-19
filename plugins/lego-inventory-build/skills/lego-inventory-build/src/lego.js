@@ -469,6 +469,37 @@
   wheel('55981', 'Колесо с шиной 30×14', 1.9, 1.75, 1.1);
   wheel('93594', 'Колёсико с шиной 14×6', 0.875, 0.75, 0.55);
 
+  // --- DUPLO: twice the LEGO size in every direction (a DUPLO stud pitch is 2 LEGO studs, a brick
+  // is 2 LEGO bricks high), so DUPLO models share the engine, the checker and the camera. DUPLO
+  // parts are flagged `duplo` and carry big studs (`studScale` 2); in DUPLO coordinates one stud is
+  // 2 units along x/y and one brick is 6 plates up. DUPLO and LEGO parts are not mixed in a model.
+  const DS = 2; // DUPLO scale
+  function duplo(id, ru, w, d, bricks, extra) {
+    const h = bricks * 3 * PLATE * DS;
+    const studs = [];
+    for (let j = 0; j < d; j++) for (let i = 0; i < w; i++) studs.push([(i + 0.5) * DS, (j + 0.5) * DS, h]);
+    reg(Object.assign({ id, ru, kind: 'ext', w: w * DS, d: d * DS, h, profile: [[0, 0], [d * DS, 0], [d * DS, h], [0, h]], studs, discs: [], duplo: true, studScale: DS }, extra || {}));
+  }
+  duplo('3437', 'DUPLO кирпич 2×2', 2, 2, 1);
+  duplo('3011', 'DUPLO кирпич 2×4', 4, 2, 1);
+  duplo('2300', 'DUPLO кирпич 2×6', 6, 2, 1);
+  duplo('4199', 'DUPLO кирпич 2×8', 8, 2, 1);
+  duplo('31110', 'DUPLO кирпич 2×2×2', 2, 2, 2);
+  duplo('4066', 'DUPLO кирпич 1×2×2', 2, 1, 2);
+  // DUPLO plates are half a DUPLO brick high (= one LEGO brick)
+  duplo('40666', 'DUPLO пластина 2×4', 4, 2, 0.5);
+  duplo('98233', 'DUPLO пластина 2×6', 6, 2, 0.5);
+  duplo('44524', 'DUPLO пластина 2×8', 8, 2, 0.5);
+  duplo('14721', 'DUPLO пластина 4×4', 4, 4, 0.5);
+  duplo('25549', 'DUPLO пластина 4×6', 6, 4, 0.5);
+  duplo('4672', 'DUPLO пластина 4×8', 8, 4, 0.5);
+  // 45 degree roof slope 2x2x1.5, low side toward -y, one row of studs at the back
+  {
+    const h = 1.5 * 3 * PLATE * DS;
+    reg({ id: '6474', ru: 'DUPLO скос 45° 2×2', kind: 'ext', w: 2 * DS, d: 2 * DS, h, profile: [[0, 0], [2 * DS, 0], [2 * DS, h], [DS, h], [0, h - DS]],
+      studs: [[0.5 * DS, 1.5 * DS, h], [1.5 * DS, 1.5 * DS, h]], discs: [], duplo: true, studScale: DS });
+  }
+
   // --- technic: liftarms (holes across, along y), connector, pins
   function liftarm(id, ru, L, alongZ) {
     const discs = [];
@@ -617,7 +648,7 @@
   function localBox(def) {
     if (def._box) return def._box;
     if (!def.pieces) {
-      const top = def.studs.length ? def.h + STUD_H : def.h;
+      const top = def.studs.length ? def.h + STUD_H * (def.studScale || 1) : def.h;
       return (def._box = { lo: [0, 0, 0], hi: [def.w, def.d, top] });
     }
     const lo = [Infinity, Infinity, Infinity];
@@ -918,8 +949,10 @@
         if (covered(madd(C, ax, 0.1), b, bodies, index)) return;
         const mn = [0, 0, 0];
         const mx = [0, 0, 0];
-        cylBox(C, ax, STUD_R, STUD_H, mn, mx);
-        const cyl = cylGeom(cam, C, ax, STUD_R, STUD_H);
+        const sr = STUD_R * (p.def.studScale || 1);
+        const sh = STUD_H * (p.def.studScale || 1);
+        cylBox(C, ax, sr, sh, mn, mx);
+        const cyl = cylGeom(cam, C, ax, sr, sh);
         // a multi-piece part outlines its studs together with its pieces (see drawHalo)
         if (b.groupHulls) (b.group.studSils = b.group.studSils || []).push(cyl.sil);
         objs.push({
