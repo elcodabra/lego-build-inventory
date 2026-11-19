@@ -191,6 +191,13 @@ export default async function handler(req, res) {
   const u0 = new URL(req.url || '/', 'http://x');
   // Vercel keeps the original path in req.url; ?wk= is the rewrite's fallback copy of it
   const reqPath = u0.pathname.startsWith('/.well-known/') ? u0.pathname : u0.searchParams.get('wk') ? `/.well-known/${u0.searchParams.get('wk')}` : u0.pathname;
+  // OpenAI plugin directory domain verification: the exact token as plain text
+  if (reqPath === '/.well-known/openai-apps-challenge') {
+    const tok = process.env.OPENAI_APPS_CHALLENGE || '';
+    if (!tok) return res.status(404).end('not configured');
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    return res.status(200).end(tok);
+  }
   // RFC 9728 protected resource metadata (path-specific and root forms)
   if (reqPath.startsWith('/.well-known/oauth-protected-resource')) {
     if (!oauth.enabled) return res.status(404).json({ error: 'oauth not enabled' });
