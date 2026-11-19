@@ -8,6 +8,7 @@ import { findOrCreateGrant, issueCode, listGrants, revokeGrant } from '@/lib/gra
 import { authenticationOptions, finishAuthentication, finishRegistration, registrationOptions } from '@/lib/passkeys';
 import { rateLimit } from '@/lib/ratelimit';
 import { currentUser, endSession, saveUser, startSession } from '@/lib/users';
+import { reviewEnabled, reviewLogin } from '@/lib/review';
 
 type Result<T = unknown> = { ok: true; data?: T } | { ok: false; error: string };
 const fail = (e: unknown): Result => ({ ok: false, error: e instanceof Error ? e.message : 'Error · Ошибка' });
@@ -41,6 +42,18 @@ export async function passkeyLoginFinish(cid: string, response: unknown): Promis
     track('login', { method: 'passkey' }, u.id);
     return { ok: true };
   } catch (e) { track('login_failed', { reason: e instanceof Error ? e.message.slice(0, 60) : 'error' }); return fail(e); }
+}
+
+// Password sign-in for the app-directory test account only (see lib/review.ts).
+export async function reviewSignIn(login: string, password: string): Promise<Result> {
+  try {
+    if (!reviewEnabled()) throw new Error('Not available · Недоступно');
+    await guard('review', 5);
+    const u = await reviewLogin(String(login || ''), String(password || ''));
+    await startSession(u.id);
+    track('login', { method: 'review_password' }, u.id);
+    return { ok: true };
+  } catch (e) { track('login_failed', { reason: 'review_password' }); return fail(e); }
 }
 
 // Consent: only the request id comes from the form; everything else was validated at /authorize.

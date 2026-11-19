@@ -1,5 +1,6 @@
 // Account: connected apps (revoke), passkeys, name, sign out.
 import Login from '@/components/Login';
+import { reviewEnabled } from '@/lib/review';
 import { listGrants } from '@/lib/grants';
 import { currentUser } from '@/lib/users';
 import { logout, rename, revoke } from '../actions';
@@ -11,7 +12,7 @@ const date = (t: number) => new Date(t).toLocaleDateString('en-GB', { day: 'nume
 export default async function Account() {
   const user = await currentUser();
   if (!user) {
-    return (<div className="card"><h1>Account · Аккаунт</h1><p>Sign in to manage your connections. · Войдите, чтобы управлять подключениями.</p><Login /></div>);
+    return (<div className="card"><h1>Account · Аккаунт</h1><p>Sign in to manage your connections. · Войдите, чтобы управлять подключениями.</p><Login review={reviewEnabled()} /></div>);
   }
   const grants = await listGrants(user.id);
   return (
@@ -26,7 +27,7 @@ export default async function Account() {
       </div>
       <div className="card">
         <h2>Connected apps · Подключённые приложения</h2>
-        {grants.length === 0 && <p className="muted">None yet. Connect “LEGO from My Bricks” in ChatGPT or Claude. · Пока нет.</p>}
+        {grants.length === 0 && <p className="muted">None yet. Connect “My Bricks Builder” in ChatGPT or Claude. · Пока нет.</p>}
         {grants.map((g) => (
           <div className="app" key={g.id} data-testid="grant">
             <div><b>{g.clientName}</b><div className="muted small">last used {date(g.lastUsed)}</div></div>

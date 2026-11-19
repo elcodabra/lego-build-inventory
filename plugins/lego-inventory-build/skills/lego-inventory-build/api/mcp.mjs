@@ -156,12 +156,12 @@ function keyPage(req) {
   const url = `https://${host}/mcp?key=${key}`;
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>LEGO from My Bricks · MCP</title><meta name="robots" content="noindex">
+<title>My Bricks Builder · MCP</title><meta name="robots" content="noindex">
 <style>body{font:16px/1.5 system-ui,-apple-system,sans-serif;max-width:640px;margin:40px auto;padding:0 20px;color:#1f2328}
 code,input{font:14px ui-monospace,Menlo,monospace}input{width:100%;padding:10px;border:1px solid #d0d7de;border-radius:8px;box-sizing:border-box}
 button{margin-top:8px;padding:8px 16px;border:0;border-radius:999px;background:#ffd500;font-weight:600;cursor:pointer}
 ol li{margin:6px 0}.muted{color:#656d76;font-size:14px}</style></head><body>
-<h1>🧱 LEGO from My Bricks</h1>
+<h1>🧱 My Bricks Builder</h1>
 <p>An MCP app for ChatGPT and Claude: photograph your parts and get ideas for what to build with step-by-step instructions, or photograph a model you already built (Meta Muse Spark + SAM 3.1) and get the exact way to take it apart and what else to build from the same bricks.</p>
 ${oauth.enabled ? `<h2>How to connect</h2>
 <p>App URL: <code>${esc(oauth.resourceFor(req))}</code></p>

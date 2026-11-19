@@ -1,5 +1,6 @@
 // Login (if needed) + consent for one pending authorization request.
 import Login from '@/components/Login';
+import { reviewEnabled } from '@/lib/review';
 import { getAuthRequest } from '@/lib/authorize';
 import { currentUser } from '@/lib/users';
 import { decide } from '../actions';
@@ -28,7 +29,7 @@ export default async function Consent({ searchParams }: { searchParams: Promise<
         <h1>Sign in · Вход</h1>
         <p>{who} wants to connect to your LEGO parts. Sign in to continue. · Войдите, чтобы продолжить.</p>
         {warn}
-        <Login />
+        <Login review={reviewEnabled()} />
       </div>
     );
   }
