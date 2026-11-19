@@ -1,22 +1,36 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "my-bricks-builder",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Suggests models to build from the bricks you own (LEGO or DUPLO) and draws step-by-step instructions.",
-  "author": { "name": "elcodabra", "url": "https://github.com/elcodabra/lego-build-inventory" },
+  "author": {
+    "name": "elcodabra",
+    "url": "https://github.com/elcodabra/lego-build-inventory"
+  },
   "homepage": "https://lego-mcp.vercel.app/mcp",
   "repository": "https://github.com/elcodabra/lego-build-inventory",
   "license": "MIT",
-  "keywords": ["bricks", "building", "instructions", "kids", "duplo"],
+  "keywords": [
+    "bricks",
+    "building",
+    "instructions",
+    "kids",
+    "duplo"
+  ],
   "extensions": {
     "com.openai": {
       "interface": {
         "displayName": "My Bricks Builder",
         "shortDescription": "Build ideas from your bricks",
-        "longDescription": "Tell My Bricks Builder which bricks you have (a photo of the pile, a parts list or set numbers) and it suggests models you can build right now from exactly those parts, then draws step-by-step instructions in the style of a printed booklet, with a short build video on request. Every model is checked: nothing floats, nothing overlaps, and every part is one you own. Ideas that are almost buildable come with the exact list of missing parts. DUPLO works too: a house, a tower and a pyramid at real DUPLO scale. You can also take apart a saved model step by step and rebuild something new from its parts.\n\nFor families and kids with a box of mixed bricks and no instructions. Limits: part recognition from photos can make mistakes (you can correct the list); the app only draws common bricks, plates, slopes and a few special parts; daily limits apply (300 tool calls, 10 videos, 40 photos per account). Not affiliated with, sponsored or endorsed by the LEGO Group.",
+        "longDescription": "Tell My Bricks Builder which bricks you have (a photo of the pile, a parts list or set numbers) and it suggests models you can build from those parts, then draws step-by-step instructions in the style of a printed booklet, with a short build video on request. Before a model is shown, an automatic check looks for overlapping or unsupported parts and for parts that are not in your list. Ideas that are almost buildable come with a list of the parts to add. DUPLO bricks are supported too (house, tower and pyramid ideas). You can also take apart a saved model step by step and see what else to build from its parts.\n\nFor families and kids with a box of mixed bricks and no instructions. Limits: part recognition from photos can make mistakes, so check and correct the list; only common bricks, plates, slopes and some special parts are drawn; the check is a simplified model of real bricks; daily limits apply (300 tool calls, 10 videos, 40 photos per account). Not affiliated with, sponsored or endorsed by the LEGO Group.",
         "developerName": "elcodabra",
         "category": "Education & Research",
-        "capabilities": ["Read your parts list", "Update your parts list", "Suggest and draw models", "Render build videos"],
+        "capabilities": [
+          "Read your parts list",
+          "Update your parts list",
+          "Suggest and draw models",
+          "Render build videos"
+        ],
         "websiteURL": "https://github.com/elcodabra/lego-build-inventory",
         "supportURL": "https://github.com/elcodabra/lego-build-inventory/issues",
         "privacyPolicyURL": "https://lego-mcp.vercel.app/privacy.html",
