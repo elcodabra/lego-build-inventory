@@ -85,3 +85,9 @@ Everything after the photo step is deterministic and fast; the Meta call is the 
 and SAM runs in parallel with Muse so it adds no wait.
 
 Total spend for all benchmarks today: about $0.52 Meta, $0.32 OpenAI, $0.45 Anthropic.
+
+## Proposed pilot — locate a requested part in a photo (2026-11-27)
+
+Try the WeVisOne-VL-4B GGUF build to draw a candidate box for a description such as “red 2×4 brick”. Let the user confirm the highlighted part before adding it to inventory. The model returns boxes and supports an absent-object response.
+
+Test on labelled photos of mixed bricks with similar colors, sizes and occlusions, plus photos missing the requested part. Compare with the current photo flow on correct part selection and false positives. Report peak process memory separately from the 3.04 GB of weights including the vision projector. The uploader measured box IoU of 0.963 against F16 on 50 COCO images and 10/10 correct abstentions on absent-object prompts. Accuracy against human-labelled brick photos remains open. [Build and evaluation, 2026-11-26](https://huggingface.co/q81801/WeVisOne-VL-4B-GGUF)
